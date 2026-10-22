@@ -1,0 +1,152 @@
+﻿using System.Data;
+using AgenticPitstop.Infrastructure;
+using Microsoft.AspNetCore.Mvc;
+
+namespace AgenticPitstop.Controllers;
+
+/// <summary>
+/// User Management. Admin and Manager only. Deletes are soft: the row stays,
+/// activestatus goes to 0 and actiontype becomes 'Deleted'.
+/// </summary>
+[ApsAuthorize(ApsIdentity.RoleAdmin, ApsIdentity.RoleManager)]
+public sealed class UsersController : ApsController
+{
+    public UsersController(ApsDb db, ApsIdentity identity, ApsMetadata meta)
+        : base(db, identity, meta) { }
+
+    protected override string ActiveScreenKey => "user-management";
+
+    [HttpGet]
+    public IActionResult Index(string search = null, string status = null)
+    {
+        ViewBag.Users = Db.Query("APS_Users_Get", p =>
+        {
+            ApsDb.In(p, "@search", string.IsNullOrWhiteSpace(search) ? null : search.Trim());
+            ApsDb.In(p, "@activestatus", ParseStatus(status));
+        });
+
+        ViewBag.History = Db.Query("APS_Users_History_Get", p => ApsDb.In(p, "@top", 12));
+        ViewBag.Search = search;
+        ViewBag.Status = status ?? "All statuses";
+
+        return View();
+    }
+
+    [HttpGet]
+    public IActionResult Get(short id)
+    {
+        var row = Db.QuerySingle("APS_Users_GetById", p => ApsDb.In(p, "@uid", id));
+        return row == null
+            ? Fail("User not found.")
+            : Ok(null, ApsMetadata.ToDictionary(row));
+    }
+
+    [HttpPost]
+    public IActionResult Save(short uid, string portalid, string firstname, string lastname,
+                              string emailid, byte accesstype)
+    {
+        // Server-side validation. The browser checks the same rules for a faster
+        // response, but this is the copy that decides.
+        var problem = ValidateUser(portalid, firstname, lastname, emailid, accesstype);
+        if (problem != null) return Fail(problem);
+
+        // A Manager must not be able to mint another Admin.
+        if (accesstype == ApsIdentity.RoleAdmin && Identity.AccessType != ApsIdentity.RoleAdmin)
+            return Fail("Only an Admin can assign the Admin role.");
+
+        portalid = ApsIdentity.NormalizeUsername(portalid);
+
+        if (uid == 0)
+        {
+            var outputs = Db.ExecuteWithOutput("APS_Users_Insert", p =>
+            {
+                ApsDb.In(p, "@portalid", portalid);
+                ApsDb.In(p, "@firstname", firstname.Trim());
+                ApsDb.In(p, "@lastname", lastname.Trim());
+                ApsDb.In(p, "@emailid", emailid.Trim());
+                ApsDb.In(p, "@accesstype", accesstype);
+                ApsDb.In(p, "@actionby", ActionBy);
+                ApsDb.Out(p, "@uid", SqlDbType.SmallInt);
+                ApsDb.Out(p, "@message", SqlDbType.NVarChar, 200);
+            });
+            return FromProcedure(outputs, "uid");
+        }
+
+        var updateOutputs = Db.ExecuteWithOutput("APS_Users_Update", p =>
+        {
+            ApsDb.In(p, "@uid", uid);
+            ApsDb.In(p, "@portalid", portalid);
+            ApsDb.In(p, "@firstname", firstname.Trim());
+            ApsDb.In(p, "@lastname", lastname.Trim());
+            ApsDb.In(p, "@emailid", emailid.Trim());
+            ApsDb.In(p, "@accesstype", accesstype);
+            ApsDb.In(p, "@actionby", ActionBy);
+            ApsDb.Out(p, "@message", SqlDbType.NVarChar, 200);
+        });
+
+        var message = Convert.ToString(updateOutputs["message"]);
+        return message is "User updated."
+            ? Ok(message)
+            : Fail(message);
+    }
+
+    [HttpPost]
+    public IActionResult ToggleStatus(short uid)
+    {
+        if (IsSelf(uid)) return Fail("You cannot change your own active status.");
+
+        Db.Execute("APS_Users_ToggleStatus", p =>
+        {
+            ApsDb.In(p, "@uid", uid);
+            ApsDb.In(p, "@actionby", ActionBy);
+        });
+        return Ok("User status updated.");
+    }
+
+    [HttpPost]
+    public IActionResult Delete(short uid)
+    {
+        // Removing your own access would lock you out of the screen you are on.
+        if (IsSelf(uid)) return Fail("You cannot delete your own account.");
+
+        Db.Execute("APS_Users_SoftDelete", p =>
+        {
+            ApsDb.In(p, "@uid", uid);
+            ApsDb.In(p, "@actionby", ActionBy);
+        });
+        return Ok("User deleted.");
+    }
+
+    // -------------------------------------------------------------------------
+
+    private bool IsSelf(short uid)
+    {
+        var current = Identity.CurrentUser;
+        return current != null && Convert.ToInt16(current["uid"]) == uid;
+    }
+
+    private static byte? ParseStatus(string status) => status switch
+    {
+        "Active" => (byte)1,
+        "Inactive" => (byte)0,
+        _ => null
+    };
+
+    private static string ValidateUser(string portalid, string firstname, string lastname,
+                                       string emailid, byte accesstype)
+    {
+        if (string.IsNullOrWhiteSpace(portalid)) return "Portal ID is required.";
+        if (string.IsNullOrWhiteSpace(firstname)) return "First name is required.";
+        if (string.IsNullOrWhiteSpace(lastname)) return "Last name is required.";
+        if (string.IsNullOrWhiteSpace(emailid)) return "Email address is required.";
+
+        var at = emailid.IndexOf('@');
+        if (at <= 0 || emailid.IndexOf('.', at) < at || emailid.EndsWith("."))
+            return "Enter a valid email address.";
+
+        if (accesstype is < ApsIdentity.RoleAdmin or > ApsIdentity.RoleAssociate)
+            return "Select a valid role.";
+
+        return null;
+    }
+}

@@ -1,0 +1,127 @@
+@{
+    ViewBag.Title = "Dynamic Reports";
+    var reports = ViewBag.ReportCatalog as DataTable ?? new DataTable();
+    ViewData["PageTitle"] = "Dynamic reports";
+    ViewData["PageSubtitle"] = "Run approved stored procedures using database-defined filters and result columns.";
+    ViewData["PageBreadcrumb"] = "Operations / Dynamic Reports";
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+<div class="report-design-callout callout"><i class="fa-solid fa-circle-info"></i><span><strong>Design principle:</strong> JavaScript builds the filters and result table dynamically. ASP.NET Core resolves the selected ReportId to an approved stored procedure on the server.</span></div>
+<div class="tabs"><a class="tab-button active" href="#reportRunner">Run Report</a><a class="tab-button" asp-controller="Configuration" asp-action="Index" asp-route-tab="report-config">Report Configuration</a></div>
+
+<div class="report-run-layout report-run-layout-new" id="reportRunner">
+    <div class="card report-generator-card">
+        <div class="card-header"><div class="card-title-row"><div><h2 class="card-title">Generate Report</h2><p class="card-subtitle">Only reports permitted for the selected role are shown.</p></div><span class="badge badge-success">Metadata-driven</span></div></div>
+        <div class="card-body">
+            <div class="form-group"><label for="reportSelector">Select Report</label><select id="reportSelector"><option value="">Choose a report</option>@foreach (DataRow report in reports.Rows) { <option value="@ApsMetadata.Cell(report, "reportid")">@ApsMetadata.Cell(report, "reportname")</option> }</select></div>
+            <p class="report-description" id="reportDescription">Select a report to view its description and filters.</p>
+            <div class="report-stat-list" id="reportStats" hidden><span class="badge badge-info" id="executionMode"></span><span class="badge badge-neutral">Report ID <strong id="reportId"></strong></span><span class="badge badge-neutral"><strong id="parameterCount">0</strong> parameter(s)</span><span class="badge badge-neutral">Max 5,000 rows</span></div>
+            <hr class="report-divider" /><h3 class="report-section-title">Filters</h3><div id="reportFilters" class="form-grid report-filters"><p class="input-help">Choose a report to load its filters.</p></div>
+            <div class="form-actions"><button class="btn btn-primary" id="runReport" disabled><i class="fa-solid fa-play"></i>Generate Report</button><button class="btn" id="resetFilters" type="button">Reset Filters</button></div>
+        </div>
+    </div>
+    <div class="card" id="apiContract"><div class="card-header"><h2 class="card-title">Request / Server Resolution</h2><p class="card-subtitle">Shows the security boundary between browser and server.</p></div><div class="card-body report-resolution-body"><label>Browser sends</label><pre class="report-json" id="browserRequest">Select a report to preview the request.</pre><div class="report-server-resolution"><strong>Server-only resolution</strong><div id="serverResolution">Resolved procedure and approved parameters appear here after a report is selected.</div><pre class="report-json" id="serverParameters"></pre></div></div></div>
+</div>
+
+<div class="card report-results-card" id="reportResults"><div class="card-header"><div class="card-title-row"><div><h2 class="card-title">Dynamic Result</h2><p class="card-subtitle" id="resultSummary">Run a report to see dynamically generated columns and rows.</p></div><div class="report-export-actions"><button class="btn btn-sm" data-export="csv" disabled>Export CSV</button><button class="btn btn-sm" data-export="excel" disabled>Excel</button><button class="btn btn-sm" data-export="pdf" disabled>PDF / Print</button></div></div></div><div class="card-body"><div class="report-result-toolbar"><input id="resultSearch" type="search" placeholder="Search returned rows..." /><div><button class="btn btn-sm" id="previousPage" disabled>Previous</button><button class="btn btn-sm" id="nextPage" disabled>Next</button></div></div><div id="resultTable" class="table-wrap"><div class="empty-state"><p>No result yet.</p></div></div></div></div>
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+(window.apsReady = window.apsReady || []).push(function ($) {
+    var metadata = null, lastResult = null, $selector = $('#reportSelector'), $run = $('#runReport');
+    function field(row, names) {
+        if (!row) return '';
+        for (var i = 0; i < names.length; i++) {
+            if (row[names[i]] !== undefined && row[names[i]] !== null) return row[names[i]];
+            var key = Object.keys(row).filter(function (candidate) { return candidate.toLowerCase() === names[i].toLowerCase(); })[0];
+            if (key && row[key] !== null) return row[key];
+        }
+        return '';
+    }
+    function parameterName(p) { return String(field(p, ['parametername', 'name'])).replace(/^@@+/, ''); }
+    function requestPreview() { return { reportid: Number($selector.val()), parameters: (metadata && metadata.parameters || []).map(function (p) { return { name: field(p, ['parametername', 'name']), mode: field(p, ['control', 'controltype']) || 'value', value: $('#filter_' + parameterName(p)).val() || null }; }), pagenumber: 1, pagesize: 10 }; }
+    function updatePreview() { if (!metadata) return; var d = metadata.definition || {}, preview = requestPreview(); $('#browserRequest').text(JSON.stringify(preview, null, 2)); $('#serverResolution').html('<strong>Resolved procedure:</strong> ' + APS.escapeHtml(field(d, ['procedureschema'])) + '.' + APS.escapeHtml(field(d, ['procedurename'])) + '<br><strong>Timeout:</strong> ' + APS.escapeHtml(field(d, ['commandtimeout']) || '120') + 's<br><strong>Authorization:</strong> Execute allowed'); $('#serverParameters').text(JSON.stringify(preview.parameters.map(function (p) { return { name: p.name, value: p.value }; }), null, 2)); }
+    function loadMetadata(id) {
+        metadata = null; $('#reportFilters').empty(); $run.prop('disabled', true); $('#reportStats').prop('hidden', true); $('#browserRequest').text('Loading report configuration...');
+        if (!id) { $('#reportDescription').text('Select a report to view its description and filters.'); return; }
+        $.get('@Url.Action("Metadata", "Reports")', { reportId: id }).done(function (response) {
+            if (!response.success || !response.data) { APS.toast(response.message || 'Report configuration could not be loaded.', 'error'); return; }
+            metadata = response.data; var d = metadata.definition || {}; $('#reportDescription').text(field(d, ['description']) || 'No description available.'); $('#reportId').text(field(d, ['reportid', 'id']) || id); $('#parameterCount').text((metadata.parameters || []).length); $('#executionMode').text(field(d, ['executionmode']) || 'ClientPaged'); $('#reportStats').prop('hidden', false);
+            var html = (metadata.parameters || []).map(function (p) { var name = parameterName(p), label = field(p, ['DisplayName', 'label']) || name, type = String(field(p, ['control', 'ControlType'])).toLowerCase(), lookup = field(p, ['LookupProcedure', 'lookupprocedure']); var control = type === 'select' ? '<select id="filter_' + APS.escapeAttr(name) + '" name="' + APS.escapeAttr(name) + '" data-lookup="' + APS.escapeAttr(lookup) + '"><option value="">-- All --</option></select>' : '<input id="filter_' + APS.escapeAttr(name) + '" name="' + APS.escapeAttr(name) + '" type="' + (type === 'date' ? 'date' : 'text') + '" />'; return '<div class="form-group"><label for="filter_' + APS.escapeAttr(name) + '">' + APS.escapeHtml(label) + '</label>' + control + '</div>'; }).join('');
+            $('#reportFilters').html(html || '<p class="input-help">This report has no filters.</p>'); $run.prop('disabled', false); updatePreview();
+            $('#reportFilters select[data-lookup]').each(function () {
+                var select = this, parameter = $(select).attr('name');
+                $.get('@Url.Action("Lookup", "Reports")', { reportId: id, parameterName: parameter }).done(function (lookupResponse) {
+                    if (!lookupResponse.success) return;
+                            (lookupResponse.data || []).forEach(function (item) {
+            var keys = Object.keys(item);
+
+            var valueKey = keys.find(function (key) {
+                return /id|code|value/i.test(key);
+            }) || keys[0];
+
+            var textKey = keys.find(function (key) {
+                return /name|description|text/i.test(key);
+            });
+
+            if (!textKey) {
+                textKey = keys.filter(function (k) {
+                    return k !== valueKey;
+                })[0] || valueKey;
+            }
+
+            $(select).append(
+                        '<option value="' + APS.escapeAttr(item[textKey]) + '">' +
+                APS.escapeHtml(item[textKey]) +
+                '</option>'
+            );
+        });
+                    updatePreview();
+                });
+            });
+        }).fail(function () { APS.toast('Report configuration could not be loaded.', 'error'); });
+    }
+    function render(result) {
+        // store the last full result set
+        lastResult = result;
+        var columns = result.columns || [], rows = result.rows || [];
+
+        // draw the grid for the provided row set
+        function draw(displayRows) {
+            var html = '<table><thead><tr>' + columns.map(function (c) { return '<th>' + APS.escapeHtml(c) + '</th>'; }).join('') + '</tr></thead><tbody>';
+            html += (displayRows || []).map(function (row) { return '<tr>' + columns.map(function (c) { return '<td>' + APS.escapeHtml(field(row, [c])) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>';
+            $('#resultTable').html(html || '<p class="input-help">The report returned no rows.</p>');
+            $('#resultSummary').text((displayRows || []).length + ' row(s) shown · ' + rows.length + ' total · Maximum 5,000 rows');
+            $('[data-export]').prop('disabled', false);
+        }
+
+        // initial draw with all rows
+        draw(rows);
+
+        // client-side filtering while typing in the search box
+        // debounce isn't strictly necessary but keep simple for clarity
+        $('#resultSearch').off('input.resultFilter').on('input.resultFilter', function () {
+            var term = $(this).val() || '';
+            term = term.trim().toLowerCase();
+            if (!term) {
+                draw(rows);
+                return;
+            }
+            var filtered = rows.filter(function (r) {
+                return columns.some(function (c) {
+                    var v = String(field(r, [c]) || '').toLowerCase();
+                    return v.indexOf(term) !== -1;
+                });
+            });
+            draw(filtered);
+        });
+    }
+
+    $selector.on('change', function () { loadMetadata(this.value); }); $('#reportFilters').on('input change', updatePreview); $('#resetFilters').on('click', function () { $('#reportFilters input').val(''); $('#reportFilters select').prop('selectedIndex', 0); updatePreview(); });
+    $run.on('click', function () { updatePreview(); APS.post('@Url.Action("Run", "Reports")?reportId=' + encodeURIComponent($selector.val()), $('#reportFilters input, #reportFilters select').serialize()).then(function (response) { if (response.success) { lastResult = response.data; render(lastResult); } }); }); $('[data-export="pdf"]').on('click', function () { window.print(); });
+    $('[data-export="csv"], [data-export="excel"]').on('click', function () { if (!lastResult) return; var csv = [lastResult.columns].concat(lastResult.rows.map(function (row) { return lastResult.columns.map(function (c) { return '"' + String(row[c] || '').replace(/"/g, '""') + '"'; }); })).map(function (r) { return r.join(','); }).join('\r\n'); var link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = 'report.csv'; link.click(); });
+});
+</script>
+}

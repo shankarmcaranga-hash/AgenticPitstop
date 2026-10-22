@@ -1,0 +1,212 @@
+﻿using System.Data;
+using System.Text;
+using AgenticPitstop.Infrastructure;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.SqlClient;
+
+namespace AgenticPitstop.Controllers;
+
+/// <summary>
+/// Inflow. The screen shape follows the Admin's configured inflow type: a manual
+/// upload zone for Excel, or a status panel for the automated API. The manual
+/// upload always stays reachable, so a team is not blocked when the API is down.
+/// </summary>
+[ApsAuthorize]
+public sealed class InflowController : ApsController
+{
+    private const long MaxUploadBytes = 10 * 1024 * 1024;
+
+    public InflowController(ApsDb db, ApsIdentity identity, ApsMetadata meta)
+        : base(db, identity, meta) { }
+
+    protected override string ActiveScreenKey => "inflow";
+
+    [HttpGet]
+    public IActionResult Index()
+    {
+        var config = Meta.InflowConfiguration();
+
+        ViewBag.Config = config;
+        ViewBag.InflowType = config == null ? (byte)2 : Convert.ToByte(config["inflowtype"]);
+        ViewBag.Columns = Meta.InflowColumns();
+        ViewBag.History = Db.Query("APS_Inflow_History_Get", p => ApsDb.In(p, "@top", 10));
+        ViewBag.Clients = Db.Query("APS_ClientMaster_Get", p => ApsDb.In(p, "@activeonly", true));
+        ViewBag.ConfigHistory = Meta.ConfigurationHistory(5);
+        ViewBag.Preview = Db.Query("APS_InflowData_Get");
+        ViewBag.InboxColumns = Meta.InboxColumns();
+        ViewBag.Message = TempData["ApsMessage"];
+
+        return View();
+    }
+
+    /// <summary>
+    /// Imports a workbook into APS_InflowData. Only columns that exist in the
+    /// configured template are written; anything extra in the file is reported
+    /// back rather than silently dropped.
+    /// </summary>
+    [HttpPost]
+    [RequestSizeLimit(MaxUploadBytes)]
+    public async Task<IActionResult> Upload(IFormFile file, int? clientid)
+    {
+        if (file == null || file.Length == 0)
+            return Fail("Choose an Excel file to upload.");
+
+        if (!Path.GetExtension(file.FileName).Equals(".xlsx", StringComparison.OrdinalIgnoreCase))
+            return Fail("Only .xlsx workbooks are supported in this version.");
+
+        if (file.Length > MaxUploadBytes)
+            return Fail("The file is larger than the 10 MB upload limit.");
+
+        var templateColumns = Meta.InflowColumns().AsEnumerable()
+            .Select(r => Convert.ToString(r["columnname"]))
+            .ToList();
+
+        if (templateColumns.Count == 0)
+            return Fail("No inflow template is configured yet. An Admin needs to upload one first.");
+
+        DataTable sheet;
+        try
+        {
+            using var stream = new MemoryStream();
+            await file.CopyToAsync(stream);
+            stream.Position = 0;
+            sheet = ApsExcel.Read(stream);
+        }
+        catch (InvalidDataException)
+        {
+            return Fail("That file could not be read as an .xlsx workbook.");
+        }
+
+        if (sheet.Rows.Count == 0)
+            return Fail("The workbook has a header row but no data rows.");
+
+        var fileColumns = sheet.Columns.Cast<DataColumn>().Select(c => c.ColumnName).ToList();
+
+        var missing = templateColumns
+            .Where(t => !fileColumns.Contains(t, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        if (missing.Count > 0)
+            return Fail($"The file is missing {missing.Count} template column(s): {string.Join(", ", missing)}.");
+
+        var extra = fileColumns
+            .Where(f => !templateColumns.Contains(f, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        // Register the batch, then write its rows. The client belongs on the
+        // batch header only: every row in APS_InflowData already points at its
+        // batch through ifid, so repeating the client per row would create a
+        // second copy that can disagree with the first.
+        var batchOutputs = Db.ExecuteWithOutput("APS_Inflow_Insert", p =>
+        {
+            ApsDb.In(p, "@uploadedby", ActionBy);
+            ApsDb.In(p, "@filename", Path.GetFileName(file.FileName));
+            ApsDb.In(p, "@sourcetype", (byte)2);
+            ApsDb.In(p, "@recordcount", sheet.Rows.Count);
+            ApsDb.In(p, "@status", "Imported");
+            ApsDb.In(p, "@clientid", clientid is > 0 ? clientid : null);
+            ApsDb.Out(p, "@ifid", SqlDbType.Int);
+        });
+
+        var ifid = Convert.ToInt32(batchOutputs["ifid"]);
+
+        // The procedure returns 0 when the client is unknown or deactivated.
+        // Stopping here keeps a batch from being written with no owner.
+        if (ifid == 0)
+            return Fail("The selected client is no longer active. Reload the page and choose again.");
+
+        var imported = InsertRows(ifid, sheet, templateColumns);
+
+        var message = new StringBuilder($"{imported} record(s) imported from {file.FileName}.");
+        if (extra.Count > 0)
+            message.Append($" {extra.Count} column(s) not in the template were ignored: {string.Join(", ", extra)}.");
+
+        return Ok(message.ToString(), new { ifid, imported });
+    }
+
+    /// <summary>
+    /// Writes the imported rows through SqlBulkCopy.
+    ///
+    /// This is the one place the portal touches a table without naming a stored
+    /// procedure, because APS_InflowData has no fixed column list — its shape
+    /// comes from the customer's template — so no procedure signature can
+    /// describe it. Column names are taken from APS_InflowColumn (which
+    /// APS_InflowData_Rebuild already validated against a strict identifier
+    /// pattern) and mapped by name, never concatenated into SQL text.
+    /// </summary>
+    private int InsertRows(int ifid, DataTable sheet, List<string> templateColumns)
+    {
+        var staging = new DataTable();
+        staging.Columns.Add("ifid", typeof(int));
+        staging.Columns.Add("reviewstatus", typeof(string));
+        foreach (var column in templateColumns)
+        {
+            staging.Columns.Add(column, typeof(string));
+        }
+
+        foreach (DataRow source in sheet.Rows)
+        {
+            var row = staging.NewRow();
+            row["ifid"] = ifid;
+            row["reviewstatus"] = "Pending Review";
+            foreach (var column in templateColumns)
+            {
+                row[column] = sheet.Columns.Contains(column)
+                    ? Convert.ToString(source[column])
+                    : string.Empty;
+            }
+            staging.Rows.Add(row);
+        }
+
+        var connectionString = HttpContext.RequestServices
+            .GetRequiredService<IConfiguration>()
+            .GetConnectionString("ApsDatabase");
+
+        using var connection = new SqlConnection(connectionString);
+        connection.Open();
+
+        using var bulk = new SqlBulkCopy(connection)
+        {
+            DestinationTableName = "dbo.APS_InflowData",
+            BatchSize = 500,
+            BulkCopyTimeout = 120
+        };
+
+        foreach (DataColumn column in staging.Columns)
+        {
+            bulk.ColumnMappings.Add(column.ColumnName, column.ColumnName);
+        }
+
+        bulk.WriteToServer(staging);
+        return staging.Rows.Count;
+    }
+
+    /// <summary>
+    /// Builds the sample template as a CSV shaped from the configured columns, so
+    /// the download always matches the current configuration and no binary
+    /// workbook has to be checked into the repository.
+    /// </summary>
+    [HttpGet]
+    public IActionResult SampleTemplate()
+    {
+        var columns = Meta.InflowColumns().AsEnumerable()
+            .Select(r => Convert.ToString(r["columnname"]))
+            .ToList();
+
+        if (columns.Count == 0)
+            return Fail("No inflow template is configured yet.");
+
+        var csv = new StringBuilder();
+        csv.AppendLine(string.Join(",", columns.Select(Escape)));
+        csv.AppendLine(string.Join(",", columns.Select(c => Escape($"<{c}>"))));
+
+        return File(Encoding.UTF8.GetBytes(csv.ToString()),
+                    "text/csv",
+                    "APS_Inflow_Template.csv");
+
+        static string Escape(string value) =>
+            value.Contains(',') || value.Contains('"')
+                ? $"\"{value.Replace("\"", "\"\"")}\""
+                : value;
+    }
+}

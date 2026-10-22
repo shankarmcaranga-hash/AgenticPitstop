@@ -1,0 +1,104 @@
+﻿@{
+    ViewBag.Title = "Dynamic Reports";
+    var reports = ViewBag.ReportCatalog as DataTable ?? new DataTable();
+    ViewData["PageTitle"] = "Dynamic reports";
+    ViewData["PageSubtitle"] = "Run approved stored procedures using database-defined filters and result columns.";
+    ViewData["PageBreadcrumb"] = "Operations / Dynamic Reports";
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+<div class="report-run-layout">
+    <div class="card">
+        <div class="card-header"><h2 class="card-title">Report runner</h2><p class="card-subtitle">Select a configured report. Filters and result columns are generated from metadata.</p></div>
+        <div class="card-body">
+            <div class="form-group">
+                <label for="reportSelector">Report</label>
+                <select id="reportSelector">
+                    <option value="">Choose a report</option>
+                    @foreach (DataRow report in reports.Rows)
+                    {
+                        <option value="@report["reportid"]">@report["reportname"]</option>
+                    }
+                </select>
+            </div>
+            <div id="reportInfo" class="report-info" hidden>
+                <div><span>Description</span><strong id="reportDescription"></strong></div>
+                <div><span>Report ID</span><strong id="reportId"></strong></div>
+                <div><span>Parameters</span><strong id="reportParameterCount"></strong></div>
+                <div><span>Maximum rows</span><strong>5,000</strong></div>
+            </div>
+            <h3 class="report-section-title" id="filtersTitle" hidden>Filters</h3>
+            <div id="reportFilters" class="form-grid" style="margin-top:14px"></div>
+            <div class="form-actions"><button class="btn btn-primary" id="runReport" disabled><i class="fa-solid fa-play"></i>Run Report</button></div>
+        </div>
+    </div>
+
+    <div class="card" id="reportResults">
+        <div class="card-header"><div class="card-title-row"><div><h2 class="card-title">Results</h2><p class="card-subtitle" id="resultSummary">Run a report to view results.</p></div><div class="report-export-actions"><button class="btn btn-sm" data-export="csv" disabled>CSV</button><button class="btn btn-sm" data-export="excel" disabled>Excel</button><button class="btn btn-sm" data-export="pdf" disabled>PDF</button></div></div></div>
+        <div class="card-body"><div id="resultTable" class="table-wrap"><div class="empty-state"><div class="empty-icon"><i class="fa-solid fa-chart-column"></i></div><h3>No report selected</h3><p>Choose a report and run it to render the result table.</p></div></div></div>
+    </div>
+</div>
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+(window.apsReady = window.apsReady || []).push(function ($) {
+    var metadata = null;
+    var lastResult = null;
+    var $selector = $('#reportSelector');
+    var $run = $('#runReport');
+
+    function field(row, names) {
+        for (var i = 0; i < names.length; i++) if (row[names[i]] !== undefined && row[names[i]] !== null) return row[names[i]];
+        return '';
+    }
+    function loadMetadata(id) {
+        if (!id) {
+            $('#reportFilters').empty(); $('#reportInfo').prop('hidden', true);
+            $('#filtersTitle').prop('hidden', true); $run.prop('disabled', true); return;
+        }
+        $.get('@Url.Action("Metadata", "Reports")', { reportId: id }).done(function (response) {
+            metadata = response.data;
+            var definition = metadata.definition || {};
+            $('#reportDescription').text(field(definition, ['description']) || 'No description available.');
+            $('#reportId').text(field(definition, ['reportid', 'id']) || id);
+            $('#reportParameterCount').text((metadata.parameters || []).length);
+            $('#reportInfo').prop('hidden', false);
+            $('#filtersTitle').prop('hidden', false);
+            var html = (metadata.parameters || []).map(function (p) {
+                var name = field(p, ['parametername', 'name']);
+                var label = field(p, ['displayname', 'label']) || name;
+                var type = String(field(p, ['control', 'controltype'])).toLowerCase();
+                var inputType = type === 'date' ? 'date' : 'text';
+                var special = String(field(p, ['specialvalues', 'defaultvalue']) || '');
+                var control = type === 'select' ? '<select id="filter_' + APS.escapeAttr(name) + '" name="' + APS.escapeAttr(name.replace(/^@+/, '')) + '"><option value="">Choose ' + APS.escapeHtml(label) + '</option>' + special.split(',').filter(Boolean).map(function (v) { return '<option value="' + APS.escapeAttr(v.trim()) + '">' + APS.escapeHtml(v.trim()) + '</option>'; }).join('') + '</select>' : '<input id="filter_' + APS.escapeAttr(name) + '" name="' + APS.escapeAttr(name.replace(/^@+/, '')) + '" type="' + inputType + '" />';
+                return '<div class="form-group"><label for="filter_' + APS.escapeAttr(name) + '">' + APS.escapeHtml(label) + '</label>' + control + '</div>';
+            }).join('');
+            $('#reportFilters').html(html || '<p class="input-help">This report has no filters.</p>');
+            $run.prop('disabled', false);
+        });
+    }
+    function render(result) {
+        var columns = result.columns || [];
+        var rows = result.rows || [];
+        var html = '<table><thead><tr>' + columns.map(function (c) { return '<th>' + APS.escapeHtml(c) + '</th>'; }).join('') + '</tr></thead><tbody>';
+        html += rows.map(function (row) { return '<tr>' + columns.map(function (c) { return '<td>' + APS.escapeHtml(row[c]) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>';
+        $('#resultTable').html(html || '<p class="input-help">The report returned no rows.</p>');
+        $('#resultSummary').text(rows.length + ' row(s) returned');
+        $('[data-export]').prop('disabled', false);
+    }
+    $selector.on('change', function () { loadMetadata(this.value); });
+    $run.on('click', function () {
+        var data = $('#reportFilters input').serialize();
+        APS.post('@Url.Action("Run", "Reports")?reportId=' + encodeURIComponent($selector.val()), data).then(function (response) { if (response.success) { lastResult = response.data; render(lastResult); } });
+    });
+    $('[data-export="pdf"]').on('click', function () { window.print(); });
+    $('[data-export="csv"], [data-export="excel"]').on('click', function () {
+        if (!lastResult) return;
+        var csv = [lastResult.columns].concat(lastResult.rows.map(function (row) { return lastResult.columns.map(function (c) { return '"' + String(row[c] || '').replace(/"/g, '""') + '"'; }); })).map(function (r) { return r.join(','); }).join('\r\n');
+        var excel = $(this).data('export') === 'excel';
+        var blob = new Blob([csv], { type: excel ? 'application/vnd.ms-excel' : 'text/csv;charset=utf-8' }); var link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = excel ? 'report.xls' : 'report.csv'; link.click(); URL.revokeObjectURL(link.href);
+    });
+});
+</script>
+}

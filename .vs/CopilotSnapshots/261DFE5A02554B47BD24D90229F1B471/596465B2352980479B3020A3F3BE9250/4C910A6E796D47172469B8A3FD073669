@@ -1,0 +1,736 @@
+﻿using System.Data;
+using System.Text;
+using System.Text.Json;
+using AgenticPitstop.Infrastructure;
+using Microsoft.AspNetCore.Mvc;
+
+namespace AgenticPitstop.Controllers;
+
+/// <summary>
+/// The Configuration workspace. Admin only, four steps:
+///   1. Inflow Source   - how work enters the portal
+///   2. Collections     - the data model, including generated tables
+///   3. Inbox Setup     - which template columns the Inbox shows
+///   4. Detail Setup    - how the review screen is composed
+///
+/// Lists arrive from the browser as JSON and are converted to table-valued
+/// parameters here. No model classes are involved and no SQL text is built.
+/// </summary>
+[ApsAuthorize(ApsIdentity.RoleAdmin)]
+public sealed class ConfigurationController : ApsController
+{
+    private readonly IHttpClientFactory _httpClientFactory;
+
+    public ConfigurationController(ApsDb db, ApsIdentity identity, ApsMetadata meta,
+                                   IHttpClientFactory httpClientFactory)
+        : base(db, identity, meta)
+    {
+        _httpClientFactory = httpClientFactory;
+    }
+
+    protected override string ActiveScreenKey => "configuration";
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    // =========================================================================
+    // Screen
+    // =========================================================================
+
+    [HttpGet]
+    public IActionResult Index(string tab = "inflow-source")
+    {
+        var config = Meta.InflowConfiguration();
+
+        ViewBag.Tab = tab;
+        ViewBag.Config = config;
+        ViewBag.Headers = config == null
+            ? new DataTable()
+            : Meta.ConfigHeaders(Convert.ToInt16(config["cid"]));
+        ViewBag.InflowColumns = Meta.InflowColumns();
+        ViewBag.Collections = Db.Query("APS_Collection_Master_Get");
+        ViewBag.InboxColumns = Meta.InboxColumns();
+        ViewBag.History = Meta.ConfigurationHistory(8);
+        ViewBag.PreviewRecords = Db.Query("APS_InflowData_Get");
+        ViewBag.ReportCatalog = Db.Query("ASP_ReportMaster_Get");
+
+        var detailConfig = Meta.DetailConfiguration();
+        ViewBag.DetailConfig = detailConfig;
+        if (detailConfig != null)
+        {
+            var dcid = Convert.ToInt16(detailConfig["dcid"]);
+            ViewBag.DetailTabs = Meta.DetailTabs(dcid);
+            ViewBag.DetailFields = Meta.DetailFields(dcid);
+        }
+        else
+        {
+            ViewBag.DetailTabs = new DataTable();
+            ViewBag.DetailFields = new DataTable();
+        }
+
+        return View();
+    }
+
+    // =========================================================================
+    // Step 5 - Report configuration
+    // =========================================================================
+
+    [HttpPost]
+    public IActionResult SaveReportConfiguration(string reportname, string reportcode,
+                                                  string description, string procedureschema,
+                                                  string procedurename, string executionmode,
+                                                  int? defaultpagesize, int? maxinteractiverows,
+                                                  int? commandtimeout, string parametersJson)
+    {
+        if (string.IsNullOrWhiteSpace(reportname) || string.IsNullOrWhiteSpace(reportcode))
+            return Fail("Report name and report code are required.");
+
+        if (!IsValidIdentifier(procedureschema) || !IsValidIdentifier(procedurename))
+            return Fail("Procedure schema and procedure name must be valid identifiers.");
+
+        if (defaultpagesize is < 1 or > 100000 || maxinteractiverows is < 1 or > 1000000 ||
+            commandtimeout is < 1 or > 3600)
+            return Fail("Page size, maximum rows and timeout must contain valid positive values.");
+
+        var report = Db.ExecuteWithOutput("ASP_ReportMaster_Insert", p =>
+        {
+            ApsDb.In(p, "@reportname", reportname.Trim());
+            ApsDb.In(p, "@reportcode", reportcode.Trim());
+            ApsDb.In(p, "@description", description?.Trim());
+            ApsDb.In(p, "@procedureschema", procedureschema.Trim());
+            ApsDb.In(p, "@procedurename", procedurename.Trim());
+            ApsDb.In(p, "@executionmode", executionmode?.Trim());
+            ApsDb.In(p, "@defaultpagesize", defaultpagesize ?? 10);
+            ApsDb.In(p, "@maxinteractiverows", maxinteractiverows ?? 5000);
+            ApsDb.In(p, "@commandtimeout", commandtimeout ?? 120);
+            ApsDb.In(p, "@actionby", ActionBy);
+            ApsDb.Out(p, "@reportid", SqlDbType.SmallInt);
+            ApsDb.Out(p, "@message", SqlDbType.NVarChar, 400);
+        });
+
+        if (!report.TryGetValue("reportid", out var reportIdValue) || reportIdValue == null ||
+            !short.TryParse(Convert.ToString(reportIdValue), out var reportId))
+            return FromProcedure(report);
+
+        short sortOrder = 0;
+        foreach (var parameter in ParseArray(parametersJson))
+        {
+            var parameterName = ReadString(parameter, "parametername");
+            if (string.IsNullOrWhiteSpace(parameterName) || !IsParameter(parameterName))
+                return Fail("Every report parameter needs a valid name beginning with @.");
+
+            Db.Execute("ASP_ReportParameter_Insert", p =>
+            {
+                ApsDb.In(p, "@reportid", reportId);
+                ApsDb.In(p, "@parametername", parameterName.Trim());
+                ApsDb.In(p, "@displayname", ReadString(parameter, "displayname")?.Trim());
+                ApsDb.In(p, "@sqltype", ReadString(parameter, "sqltype")?.Trim());
+                ApsDb.In(p, "@controltype", ReadString(parameter, "controltype")?.Trim());
+                ApsDb.In(p, "@specialvalues", ReadString(parameter, "specialvalues")?.Trim());
+                ApsDb.In(p, "@sortorder", ++sortOrder);
+                ApsDb.In(p, "@actionby", ActionBy);
+            });
+        }
+
+        return FromProcedure(report, "reportid");
+    }
+
+    [HttpGet]
+    public IActionResult Collection(short id)
+    {
+        var fields = Db.Query("APS_Collection_Field_Get", p => ApsDb.In(p, "@cid", id));
+        return Ok(null, ApsMetadata.ToList(fields));
+    }
+
+    // =========================================================================
+    // Step 1 - Inflow source
+    // =========================================================================
+
+    [HttpPost]
+    public IActionResult SaveInflow(byte inflowtype, string apiendpoint, string requestbody,
+                                    byte? scheduletype, string scheduletime, byte? everyminutes,
+                                    string filetype, string templatename, bool acknowledged,
+                                    string headersJson)
+    {
+        if (!acknowledged)
+            return Fail("Confirm you have reviewed the inflow process before saving.");
+
+        if (inflowtype == 1)
+        {
+            if (!AgentsController.IsHttpUrl(apiendpoint))
+                return Fail("Enter an API endpoint starting with http:// or https://.");
+
+            if (string.IsNullOrWhiteSpace(requestbody))
+                return Fail("A request body is required for automated inflow.");
+
+            if (!AgentsController.LooksLikeJson(requestbody))
+                return Fail("The request body must be valid JSON.");
+
+            if (scheduletype == 2 && everyminutes is null or 0 or > 99)
+                return Fail("Frequency must be between 1 and 99 minutes.");
+
+            if (scheduletype == 1 && string.IsNullOrWhiteSpace(scheduletime))
+                return Fail("Select a daily run time.");
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(templatename))
+                return Fail("Upload the Excel template before saving.");
+
+            if (!string.Equals(filetype, "Excel", StringComparison.OrdinalIgnoreCase))
+                return Fail("Only Excel is supported in this version.");
+
+            if (Meta.InflowColumns().Rows.Count == 0)
+                return Fail("No template columns have been discovered yet.");
+        }
+
+        var headers = ApsDb.NewHeaderList();
+        if (inflowtype == 1 && !string.IsNullOrWhiteSpace(headersJson))
+        {
+            short order = 0;
+            foreach (var element in ParseArray(headersJson))
+            {
+                var key = ReadString(element, "key");
+                if (string.IsNullOrWhiteSpace(key)) continue;
+
+                var value = ReadString(element, "value");
+
+                // A null value means the browser never revealed this secret, so
+                // it still holds a mask rather than the real thing. Carry the
+                // stored value forward instead of writing the mask over it.
+                if (value == null)
+                {
+                    var chidText = ReadString(element, "chid");
+                    if (short.TryParse(chidText, out var chid) && chid > 0)
+                    {
+                        var existing = Db.QuerySingle("APS_ConfigHeader_GetSecret",
+                            p => ApsDb.In(p, "@chid", chid));
+
+                        if (existing != null)
+                            value = Convert.ToString(existing["headervalue"]);
+                    }
+                }
+
+                headers.Rows.Add(key.Trim(), value, ++order);
+            }
+        }
+
+        var outputs = Db.ExecuteWithOutput("APS_Configuration_Save", p =>
+        {
+            ApsDb.In(p, "@inflowtype", inflowtype);
+            ApsDb.In(p, "@apiendpoint", inflowtype == 1 ? apiendpoint?.Trim() : null);
+            ApsDb.In(p, "@requestbody", inflowtype == 1 ? requestbody : null);
+            ApsDb.In(p, "@scheduletype", inflowtype == 1 ? scheduletype : null);
+            ApsDb.In(p, "@scheduletime", scheduletype == 1 ? scheduletime : null);
+            ApsDb.In(p, "@everyminutes", scheduletype == 2 ? everyminutes : null);
+            ApsDb.In(p, "@filetype", inflowtype == 2 ? filetype : null);
+            ApsDb.In(p, "@templatename", inflowtype == 2 ? templatename?.Trim() : null);
+            ApsDb.In(p, "@acknowledged", acknowledged);
+            ApsDb.In(p, "@actionby", ActionBy);
+            ApsDb.Table(p, "@headers", "dbo.APS_HeaderListType", headers);
+            ApsDb.Out(p, "@cid", SqlDbType.SmallInt);
+            ApsDb.Out(p, "@message", SqlDbType.NVarChar, 200);
+        });
+
+        return FromProcedure(outputs, "cid");
+    }
+
+    /// <summary>
+    /// Reads the uploaded workbook's header row and returns the discovered
+    /// columns. Nothing is persisted here — the Admin reviews the columns and
+    /// then applies them.
+    /// </summary>
+    [HttpPost]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<IActionResult> DiscoverTemplate(IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+            return Fail("Choose an Excel template to upload.");
+
+        if (!Path.GetExtension(file.FileName).Equals(".xlsx", StringComparison.OrdinalIgnoreCase))
+            return Fail("Only .xlsx templates are supported in this version.");
+
+        try
+        {
+            using var stream = new MemoryStream();
+            await file.CopyToAsync(stream);
+            stream.Position = 0;
+
+            var columns = ApsExcel.ReadHeaders(stream);
+            if (columns.Count == 0)
+                return Fail("No header row was found in the first worksheet.");
+
+            var invalid = columns.Where(c => !IsValidIdentifier(c)).ToList();
+            if (invalid.Count > 0)
+                return Fail($"These column headers are not usable as database columns: {string.Join(", ", invalid)}. " +
+                            "Use letters, numbers and underscore, starting with a letter.");
+
+            return Ok($"{columns.Count} column(s) discovered.", new
+            {
+                templatename = Path.GetFileName(file.FileName),
+                columns
+            });
+        }
+        catch (InvalidDataException)
+        {
+            return Fail("That file could not be read as an .xlsx workbook.");
+        }
+    }
+
+    /// <summary>Applies discovered columns, reshaping APS_InflowData to match.</summary>
+    [HttpPost]
+    public IActionResult ApplyTemplate(string columnsJson)
+    {
+        var columns = ApsDb.NewColumnList();
+        short order = 0;
+
+        foreach (var element in ParseArray(columnsJson))
+        {
+            var name = element.ValueKind == JsonValueKind.String
+                ? element.GetString()
+                : ReadString(element, "name");
+
+            if (string.IsNullOrWhiteSpace(name)) continue;
+
+            var dataType = element.ValueKind == JsonValueKind.Object
+                ? ReadString(element, "dataType")
+                : null;
+
+            columns.Rows.Add(name.Trim(),
+                             string.IsNullOrWhiteSpace(dataType) ? "Text" : dataType,
+                             "Textbox",
+                             ++order);
+        }
+
+        if (columns.Rows.Count == 0)
+            return Fail("No columns were supplied.");
+
+        var outputs = Db.ExecuteWithOutput("APS_InflowData_Rebuild", p =>
+        {
+            ApsDb.Table(p, "@columns", "dbo.APS_ColumnListType", columns);
+            ApsDb.In(p, "@actionby", ActionBy);
+            ApsDb.Out(p, "@success", SqlDbType.Bit);
+            ApsDb.Out(p, "@message", SqlDbType.NVarChar, 400);
+        });
+
+        return FromProcedure(outputs);
+    }
+
+    /// <summary>
+    /// Reachability probe. Runs server side so configured secrets never reach
+    /// the browser, and so the check is not blocked by CORS.
+    /// </summary>
+    [HttpPost]
+    public async Task<IActionResult> CheckConnectivity(string apiendpoint)
+    {
+        if (!AgentsController.IsHttpUrl(apiendpoint))
+            return Fail("Enter an API endpoint starting with http:// or https://.");
+
+        var client = _httpClientFactory.CreateClient("ApsInflowProbe");
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Head, apiendpoint);
+            using var response = await client.SendAsync(request);
+
+            return Ok($"Endpoint reachable (HTTP {(int)response.StatusCode}).",
+                      new { reachable = true, status = (int)response.StatusCode });
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        {
+            return Ok("Endpoint not reachable.", new { reachable = false, status = 0 });
+        }
+    }
+
+    /// <summary>
+    /// Sends the configured request and returns the raw response for review.
+    /// Header values come from the database, not from the form, so a secret is
+    /// never round-tripped through the browser to be tested.
+    /// </summary>
+    [HttpPost]
+    public async Task<IActionResult> TestApi()
+    {
+        var config = Meta.InflowConfiguration();
+        if (config == null) return Fail("Save the inflow configuration before testing it.");
+        if (Convert.ToByte(config["inflowtype"]) != 1) return Fail("The configured inflow source is not an API.");
+
+        var endpoint = Convert.ToString(config["apiendpoint"]);
+        if (!AgentsController.IsHttpUrl(endpoint)) return Fail("The configured endpoint is not a valid URL.");
+
+        var cid = Convert.ToInt16(config["cid"]);
+        var body = Convert.ToString(config["requestbody"]);
+        var client = _httpClientFactory.CreateClient("ApsInflowProbe");
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = new StringContent(body ?? "{}", Encoding.UTF8, "application/json")
+        };
+
+        foreach (DataRow header in Meta.ConfigHeaders(cid).Rows)
+        {
+            var chid = Convert.ToInt16(header["chid"]);
+            var secret = Db.QuerySingle("APS_ConfigHeader_GetSecret", p => ApsDb.In(p, "@chid", chid));
+            if (secret == null) continue;
+
+            var key = Convert.ToString(secret["headerkey"]);
+            var value = Convert.ToString(secret["headervalue"]);
+            if (string.IsNullOrWhiteSpace(key)) continue;
+
+            request.Headers.TryAddWithoutValidation(key, value);
+        }
+
+        try
+        {
+            using var response = await client.SendAsync(request);
+            var payload = await response.Content.ReadAsStringAsync();
+
+            // Cap the preview so a large payload cannot flood the viewer.
+            if (payload.Length > 8000)
+                payload = payload[..8000] + "\n... response truncated for display ...";
+
+            Db.Execute("APS_Configuration_SetApiStatus", p =>
+            {
+                ApsDb.In(p, "@cid", cid);
+                ApsDb.In(p, "@apistatus", response.IsSuccessStatusCode ? "healthy" : "unhealthy");
+            });
+
+            return Ok($"HTTP {(int)response.StatusCode} {response.ReasonPhrase}",
+                      new { status = (int)response.StatusCode, body = payload });
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        {
+            Db.Execute("APS_Configuration_SetApiStatus", p =>
+            {
+                ApsDb.In(p, "@cid", cid);
+                ApsDb.In(p, "@apistatus", "unhealthy");
+            });
+
+            return Fail("The endpoint could not be reached: " + exception.Message);
+        }
+    }
+
+    /// <summary>Returns one header value for the show/hide toggle.</summary>
+    [HttpPost]
+    public IActionResult RevealHeader(short chid)
+    {
+        var row = Db.QuerySingle("APS_ConfigHeader_GetSecret", p => ApsDb.In(p, "@chid", chid));
+        return row == null
+            ? Fail("Header not found.")
+            : Ok(null, new { value = Convert.ToString(row["headervalue"]) });
+    }
+
+    // =========================================================================
+    // Step 2 - Collections and fields
+    // =========================================================================
+
+    [HttpPost]
+    public IActionResult SaveCollection(short cid, string collectionname, string description,
+                                        string fieldsJson)
+    {
+        if (string.IsNullOrWhiteSpace(collectionname))
+            return Fail("Collection name is required.");
+
+        if (!IsValidCollectionName(collectionname))
+            return Fail("Collection name must start with a letter and contain letters and numbers only — no spaces or special characters.");
+
+        var fields = ApsDb.NewColumnList();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        short order = 0;
+
+        foreach (var element in ParseArray(fieldsJson))
+        {
+            var name = ReadString(element, "name");
+            if (string.IsNullOrWhiteSpace(name)) continue;
+
+            name = name.Trim();
+            if (!IsValidIdentifier(name))
+                return Fail($"Field name '{name}' must start with a letter and contain only letters, numbers or underscore.");
+
+            if (!seen.Add(name))
+                return Fail($"Field '{name}' is listed more than once.");
+
+            var dataType = ReadString(element, "dataType");
+            var inputType = ReadString(element, "inputType");
+
+            if (string.Equals(inputType, "Checkbox", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(dataType, "Number", StringComparison.OrdinalIgnoreCase))
+                return Fail($"Field '{name}' uses a Checkbox input, which stores 0 or 1 and needs the Number data type.");
+
+            fields.Rows.Add(name,
+                            string.IsNullOrWhiteSpace(dataType) ? "Text" : dataType,
+                            string.IsNullOrWhiteSpace(inputType) ? "Textbox" : inputType,
+                            ++order);
+        }
+
+        if (fields.Rows.Count == 0)
+            return Fail("Add at least one field to the collection.");
+
+        var outputs = Db.ExecuteWithOutput("APS_Collection_Save", p =>
+        {
+            ApsDb.In(p, "@cid", cid);
+            ApsDb.In(p, "@collectionname", collectionname.Trim());
+            ApsDb.In(p, "@description", description?.Trim());
+            ApsDb.Table(p, "@fields", "dbo.APS_ColumnListType", fields);
+            ApsDb.In(p, "@actionby", ActionBy);
+            ApsDb.Out(p, "@newcid", SqlDbType.SmallInt);
+            ApsDb.Out(p, "@message", SqlDbType.NVarChar, 400);
+        });
+
+        return FromProcedure(outputs, "newcid");
+    }
+
+    // =========================================================================
+    // Step 3 - Inbox layout
+    // =========================================================================
+
+    [HttpPost]
+    public IActionResult SaveInboxConfig(string columnsJson)
+    {
+        var columns = ApsDb.NewColumnList();
+        short order = 0;
+
+        foreach (var element in ParseArray(columnsJson))
+        {
+            var name = element.ValueKind == JsonValueKind.String
+                ? element.GetString()
+                : ReadString(element, "name");
+
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            columns.Rows.Add(name.Trim(), "Text", "Textbox", ++order);
+        }
+
+        if (columns.Rows.Count == 0)
+            return Fail("Select at least one column before saving the Inbox layout.");
+
+        var outputs = Db.ExecuteWithOutput("APS_InboxConfig_Save", p =>
+        {
+            ApsDb.Table(p, "@columns", "dbo.APS_ColumnListType", columns);
+            ApsDb.In(p, "@actionby", ActionBy);
+            ApsDb.Out(p, "@success", SqlDbType.Bit);
+            ApsDb.Out(p, "@message", SqlDbType.NVarChar, 200);
+        });
+
+        return FromProcedure(outputs);
+    }
+
+    // =========================================================================
+    // Step 4 - Detail layout
+    // =========================================================================
+
+    [HttpPost]
+    public IActionResult SaveDetailConfig(byte mode, bool knowledgeai, bool allowapprove,
+                                          bool allowreject, bool allowclarify, bool allowcomments,
+                                          string layoutJson)
+    {
+        JsonElement layout;
+        try
+        {
+            layout = JsonDocument.Parse(layoutJson ?? "{}").RootElement;
+        }
+        catch (JsonException)
+        {
+            return Fail("The detail layout could not be read.");
+        }
+
+        var tabs = ApsDb.NewDetailTabList();
+        var fields = ApsDb.NewDetailFieldList();
+        var catalog = Meta.InflowColumns().AsEnumerable()
+            .Select(r => Convert.ToString(r["columnname"]))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        short rowKey = 0;
+
+        // Header fields carry a null rowkey, which the procedure reads as
+        // "header scope" rather than "belongs to a tab".
+        if (layout.TryGetProperty("headerFields", out var headerFields) &&
+            headerFields.ValueKind == JsonValueKind.Array)
+        {
+            short order = 0;
+            foreach (var field in headerFields.EnumerateArray())
+            {
+                var name = ReadString(field, "name");
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                if (!catalog.Contains(name))
+                    return Fail($"Header field '{name}' is not part of the current inflow template.");
+
+                fields.Rows.Add(DBNull.Value, mode, name, ReadBool(field, "required"), ++order);
+            }
+        }
+
+        if (fields.Rows.Count == 0)
+            return Fail("Configure at least one header field.");
+
+        if (!layout.TryGetProperty("tabs", out var tabArray) || tabArray.ValueKind != JsonValueKind.Array)
+            return Fail("Configure at least one primary tab.");
+
+        foreach (var tab in tabArray.EnumerateArray())
+        {
+            var label = ReadString(tab, "label");
+            if (string.IsNullOrWhiteSpace(label))
+                return Fail("Every tab needs a label.");
+
+            var parentKey = ++rowKey;
+            tabs.Rows.Add(parentKey, DBNull.Value, mode,
+                          SlugFor(tab, label, parentKey), label.Trim(),
+                          ReadString(tab, "icon"),
+                          Coalesce(ReadString(tab, "displayType"), "table"),
+                          ReadShort(tab, "badge"),
+                          parentKey);
+
+            AddFields(tab, parentKey, label);
+
+            if (tab.TryGetProperty("subtabs", out var subtabs) &&
+                subtabs.ValueKind == JsonValueKind.Array)
+            {
+                short subOrder = 0;
+                foreach (var subtab in subtabs.EnumerateArray())
+                {
+                    var subLabel = ReadString(subtab, "label");
+                    if (string.IsNullOrWhiteSpace(subLabel))
+                        return Fail($"A sub-tab under '{label}' is missing its label.");
+
+                    var subKey = ++rowKey;
+                    tabs.Rows.Add(subKey, parentKey, mode,
+                                  SlugFor(subtab, subLabel, subKey), subLabel.Trim(),
+                                  ReadString(subtab, "icon"),
+                                  Coalesce(ReadString(subtab, "displayType"), "table"),
+                                  ReadShort(subtab, "badge"),
+                                  ++subOrder);
+
+                    AddFields(subtab, subKey, subLabel);
+                }
+            }
+        }
+
+        if (tabs.Rows.Count == 0)
+            return Fail("Configure at least one primary tab.");
+
+        var outputs = Db.ExecuteWithOutput("APS_DetailConfig_Save", p =>
+        {
+            ApsDb.In(p, "@mode", mode);
+            ApsDb.In(p, "@knowledgeai", knowledgeai);
+            ApsDb.In(p, "@allowapprove", allowapprove);
+            ApsDb.In(p, "@allowreject", allowreject);
+            ApsDb.In(p, "@allowclarify", allowclarify);
+            ApsDb.In(p, "@allowcomments", allowcomments);
+            ApsDb.Table(p, "@tabs", "dbo.APS_DetailTabType", tabs);
+            ApsDb.Table(p, "@fields", "dbo.APS_DetailFieldType", fields);
+            ApsDb.In(p, "@actionby", ActionBy);
+            ApsDb.Out(p, "@success", SqlDbType.Bit);
+            ApsDb.Out(p, "@message", SqlDbType.NVarChar, 400);
+        });
+
+        return FromProcedure(outputs);
+
+        void AddFields(JsonElement source, short key, string ownerLabel)
+        {
+            if (!source.TryGetProperty("fields", out var fieldArray) ||
+                fieldArray.ValueKind != JsonValueKind.Array) return;
+
+            short order = 0;
+            foreach (var field in fieldArray.EnumerateArray())
+            {
+                var name = ReadString(field, "name");
+                if (string.IsNullOrWhiteSpace(name) || !catalog.Contains(name)) continue;
+                fields.Rows.Add(key, mode, name, ReadBool(field, "required"), ++order);
+            }
+        }
+    }
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    private static IEnumerable<JsonElement> ParseArray(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) yield break;
+
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(json);
+        }
+        catch (JsonException)
+        {
+            yield break;
+        }
+
+        using (document)
+        {
+            if (document.RootElement.ValueKind != JsonValueKind.Array) yield break;
+
+            foreach (var element in document.RootElement.EnumerateArray())
+            {
+                yield return element.Clone();
+            }
+        }
+    }
+
+    private static string ReadString(JsonElement element, string property)
+    {
+        if (element.ValueKind != JsonValueKind.Object) return null;
+        if (!element.TryGetProperty(property, out var value)) return null;
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number => value.ToString(),
+            _ => null
+        };
+    }
+
+    private static bool ReadBool(JsonElement element, string property)
+    {
+        if (element.ValueKind != JsonValueKind.Object) return false;
+        if (!element.TryGetProperty(property, out var value)) return false;
+        return value.ValueKind == JsonValueKind.True;
+    }
+
+    private static object ReadShort(JsonElement element, string property)
+    {
+        if (element.ValueKind != JsonValueKind.Object) return DBNull.Value;
+        if (!element.TryGetProperty(property, out var value)) return DBNull.Value;
+        if (value.ValueKind != JsonValueKind.Number) return DBNull.Value;
+        return value.TryGetInt16(out var result) ? result : DBNull.Value;
+    }
+
+    private static string Coalesce(string value, string fallback) =>
+        string.IsNullOrWhiteSpace(value) ? fallback : value;
+
+    /// <summary>Stable key for a tab; falls back to a slug of the label.</summary>
+    private static string SlugFor(JsonElement element, string label, short rowKey)
+    {
+        var key = ReadString(element, "key");
+        if (!string.IsNullOrWhiteSpace(key)) return Truncate(key.Trim(), 60);
+
+        var builder = new StringBuilder();
+        foreach (var character in label.ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(character)) builder.Append(character);
+            else if (builder.Length > 0 && builder[^1] != '-') builder.Append('-');
+        }
+
+        var slug = builder.ToString().Trim('-');
+        return Truncate(slug.Length == 0 ? $"tab-{rowKey}" : $"{slug}-{rowKey}", 60);
+    }
+
+    private static string Truncate(string value, int length) =>
+        value.Length <= length ? value : value[..length];
+
+    /// <summary>Matches the identifier rule enforced inside the procedures.</summary>
+    internal static bool IsValidIdentifier(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 128) return false;
+        if (!char.IsLetter(value[0])) return false;
+        return value.All(c => char.IsLetterOrDigit(c) || c == '_');
+    }
+
+    internal static bool IsValidCollectionName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 100) return false;
+        if (!char.IsLetter(value[0])) return false;
+        return value.All(char.IsLetterOrDigit);
+    }
+}

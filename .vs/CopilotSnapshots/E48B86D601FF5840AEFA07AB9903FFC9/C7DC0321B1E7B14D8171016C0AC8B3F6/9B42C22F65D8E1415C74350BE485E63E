@@ -1,0 +1,134 @@
+﻿using System.Data;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using AgenticPitstop.Infrastructure;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.SqlClient;
+
+namespace AgenticPitstop.Controllers;
+
+[ApsAuthorize]
+public sealed class InboxController : ApsController
+{
+    public InboxController(ApsDb db, ApsIdentity identity, ApsMetadata meta)
+        : base(db, identity, meta) { }
+
+    protected override string ActiveScreenKey => "inbox";
+
+    [HttpGet]
+    public IActionResult Index(string search = null, string status = null)
+    {
+        var columns = Meta.InboxColumns();
+        var records = Db.Query("APS_InflowData_Get", p =>
+        {
+            ApsDb.In(p, "@search", string.IsNullOrWhiteSpace(search) ? null : search.Trim());
+            ApsDb.In(p, "@reviewstatus", string.IsNullOrWhiteSpace(status) ? null : status);
+        });
+
+        // Free-text search runs here rather than in the procedure, because the
+        // set of searchable columns is whatever the current template produced.
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            var matched = records.AsEnumerable().Where(row =>
+                records.Columns.Cast<DataColumn>().Any(column =>
+                    Convert.ToString(row[column])
+                           .Contains(term, StringComparison.OrdinalIgnoreCase)));
+
+            records = matched.Any() ? matched.CopyToDataTable() : records.Clone();
+        }
+
+        ViewBag.Columns = columns;
+        ViewBag.Records = records;
+        ViewBag.Kpi = Db.Query("APS_InflowData_GetKpi");
+        ViewBag.Statuses = Db.Query("APS_InflowData_GetKpi").AsEnumerable()
+                             .Select(r => Convert.ToString(r["reviewstatus"]))
+                             .Where(s => !string.IsNullOrWhiteSpace(s))
+                             .OrderBy(s => s).ToList();
+        ViewBag.Search = search;
+        ViewBag.Status = string.IsNullOrWhiteSpace(status) ? "All" : status;
+        ViewBag.ConfiguredColumnCount = columns.Count;
+
+        return View();
+    }
+
+    [HttpGet]
+    public IActionResult Detail(int id)
+    {
+        var record = Db.QuerySingle("APS_InflowData_GetById", p => ApsDb.In(p, "@ifdid", id));
+        if (record == null)
+        {
+            TempData["ApsMessage"] = "That record no longer exists.";
+            return RedirectToAction(nameof(Index));
+        }
+
+        var config = Meta.DetailConfiguration();
+        if (config == null)
+        {
+            ViewBag.NotConfigured = true;
+            return View();
+        }
+
+        var dcid = Convert.ToInt16(config["dcid"]);
+        var mode = Convert.ToByte(config["mode"]);
+
+        var allTabs = Meta.DetailTabs(dcid);
+        var allFields = Meta.DetailFields(dcid);
+
+        // Only the tabs belonging to the active workspace mode are rendered. The
+        // other mode's layout stays in the table so switching back is lossless.
+        ViewBag.Config = config;
+        ViewBag.Mode = mode;
+        ViewBag.Record = record;
+        ViewBag.PrimaryTabs = allTabs.AsEnumerable()
+            .Where(r => Convert.ToByte(r["mode"]) == mode && r["parenttabid"] == DBNull.Value)
+            .OrderBy(r => Convert.ToInt16(r["sortorder"]))
+            .ToList();
+        ViewBag.SubTabs = allTabs.AsEnumerable()
+            .Where(r => Convert.ToByte(r["mode"]) == mode && r["parenttabid"] != DBNull.Value)
+            .OrderBy(r => Convert.ToInt16(r["sortorder"]))
+            .ToList();
+        ViewBag.HeaderFields = allFields.AsEnumerable()
+            .Where(r => Convert.ToByte(r["mode"]) == mode && r["dtid"] == DBNull.Value)
+            .OrderBy(r => Convert.ToInt16(r["sortorder"]))
+            .ToList();
+        ViewBag.TabFields = allFields.AsEnumerable()
+            .Where(r => Convert.ToByte(r["mode"]) == mode && r["dtid"] != DBNull.Value)
+            .ToList();
+        ViewBag.Reviews = Db.Query("APS_Review_GetByRecord", p => ApsDb.In(p, "@ifdid", id));
+
+        return View();
+    }
+
+    [HttpPost]
+    public IActionResult Review(int ifdid, string decision, string comments)
+    {
+        var allowed = new[] { "Approved", "Rejected", "Needs Clarification" };
+        if (!allowed.Contains(decision))
+            return Fail("Select a valid review decision.");
+
+        var config = Meta.DetailConfiguration();
+        if (config != null && !DecisionEnabled(config, decision))
+            return Fail($"The '{decision}' action is switched off in the current detail configuration.");
+
+        var outputs = Db.ExecuteWithOutput("APS_Review_Insert", p =>
+        {
+            ApsDb.In(p, "@ifdid", ifdid);
+            ApsDb.In(p, "@decision", decision);
+            ApsDb.In(p, "@comments", string.IsNullOrWhiteSpace(comments) ? null : comments.Trim());
+            ApsDb.In(p, "@reviewedby", ActionBy);
+            ApsDb.Out(p, "@success", SqlDbType.Bit);
+            ApsDb.Out(p, "@message", SqlDbType.NVarChar, 200);
+        });
+
+        return FromProcedure(outputs);
+    }
+
+    private static bool DecisionEnabled(DataRow config, string decision) => decision switch
+    {
+        "Approved" => Convert.ToBoolean(config["allowapprove"]),
+        "Rejected" => Convert.ToBoolean(config["allowreject"]),
+        "Needs Clarification" => Convert.ToBoolean(config["allowclarify"]),
+        _ => false
+    };
+}

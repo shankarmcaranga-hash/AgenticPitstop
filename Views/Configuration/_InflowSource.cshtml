@@ -1,0 +1,1021 @@
+@{
+    var config = ViewBag.Config as DataRow;
+    var headers = (DataTable)ViewBag.Headers;
+    var columns = (DataTable)ViewBag.InflowColumns;
+    var versions = ViewBag.Versions as DataTable ?? new DataTable();
+    var useCases = ViewBag.UseCases as DataTable ?? new DataTable();
+
+    var inflowType = config == null ? (byte)2 : Convert.ToByte(config["InflowSourceType"]);
+    var scheduleType = (byte)1;
+    var acknowledged = config != null && Convert.ToBoolean(config["IsAcknowledged"]);
+
+    var useCaseId = (int)(ViewBag.UseCaseID ?? 0);
+
+    // Archive settings of the active template. Absent means nothing is stored,
+    // which is how every existing use case behaves.
+    var archiveRow = ViewBag.InflowArchive as DataRow;
+    var archiveJson = archiveRow == null ? "" : Convert.ToString(archiveRow["ArchiveJson"]) ?? "";
+    var cloudProviders = ViewBag.InflowArchiveProviders as List<string> ?? new List<string>();
+    var folderRoots = ViewBag.InflowFolderRoots as List<string> ?? new List<string>();
+}
+
+@* Two columns: the existing form on the left, preview and versions on the
+   right. The preview sits in the page rather than a second tab, so a change is
+   visible without losing the form being edited. *@
+<div class="inflow-split @(inflowType == 1 ? "api-mode" : "")" id="inflowSplit">
+
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title-row">
+                <div>
+                    <h2 class="card-title">Inflow source</h2>
+                    <p class="card-subtitle">
+                        Choose how work reaches the portal. Saving creates a new configuration
+                        version — the previous one is kept for audit.
+                    </p>
+                </div>
+                @if (config != null)
+                {
+                    <span class="badge badge-info">
+                        Version @(config.Table.Columns.Contains("versionno") ? config["versionno"] : config["cid"]) active
+                    </span>
+                }
+                else
+                {
+                    <span class="badge badge-warning">Not configured</span>
+                }
+            </div>
+        </div>
+
+        <div class="card-body">
+            <div class="form-grid">
+                @* The use case is chosen once for the whole workspace, at the top of
+               the Configuration screen. *@
+                <div class="form-group">
+                    <label for="inflowType">Inflow source</label>
+                    <select id="inflowType">
+                        <option value="1" selected="@(inflowType == 1)">API [Automated]</option>
+                        <option value="2" selected="@(inflowType == 2)">User Uploading [Manual]</option>
+                    </select>
+                </div>
+            </div>
+
+            @* ---------------- API mode ---------------- *@
+            @* ---------------- API mode ----------------
+           Four labelled sections rather than one long column: a reader can tell
+           where the endpoint ends and the schedule begins without reading every
+           label. The fields, ids and handlers are unchanged - only the frame
+           around them is new. *@
+            <div id="apiFields" style="@(inflowType == 1 ? "" : "display:none")">
+                <div class="api-stack">
+
+                    @* --- 1. Endpoint --- *@
+                    <section class="api-section">
+                        <div class="api-section-head">
+                            <span class="api-section-icon"><i class="fa-solid fa-link"></i></span>
+                            <div>
+                                <strong>Endpoint</strong>
+                                <span class="input-help">Where the portal collects work from, and the request it sends.</span>
+                            </div>
+                        </div>
+
+                        <div class="form-grid">
+                            <div class="form-group full">
+                                <label for="apiEndpoint">API endpoint</label>
+                                <div class="api-endpoint-row">
+                                    <input id="apiEndpoint" type="url" placeholder="https://api.customer.example.com/inflow"
+                                           value="@ApsMetadata.Cell(config, "ApiEndpoint")" />
+                                    <button class="btn" id="checkConnectivity">
+                                        <i class="fa-solid fa-plug-circle-check"></i>Check connectivity
+                                    </button>
+                                </div>
+                                <span id="connectivityResult" class="api-connectivity"></span>
+                                <span class="field-error" data-for="apiEndpoint"></span>
+                            </div>
+
+                            <div class="form-group full">
+                                <label for="requestBody">Request body</label>
+                                <textarea id="requestBody" rows="5" spellcheck="false"
+                                          placeholder='{ "status": "Ready", "pageSize": 100 }'>@ApsMetadata.Cell(config, "RequestBody")</textarea>
+                                <span class="input-help">Must be valid JSON. Sent as the POST body when the schedule fires.</span>
+                                <span class="field-error" data-for="requestBody"></span>
+                            </div>
+                        </div>
+                    </section>
+
+                    @* --- 2. Headers --- *@
+                    <section class="api-section">
+                        <div class="api-section-head">
+                            <span class="api-section-icon"><i class="fa-solid fa-key"></i></span>
+                            <div>
+                                <strong>Headers</strong>
+                                <span class="input-help">
+                                    Values are stored server side and masked here. They are never sent
+                                    back to the browser except when you reveal one.
+                                </span>
+                            </div>
+                            <button class="btn btn-sm" id="addHeader"><i class="fa-solid fa-plus"></i>Add header</button>
+                        </div>
+
+                        <div class="header-legend">
+                            <span>Key</span>
+                            <span>Value</span>
+                        </div>
+
+                        <div id="headerRows">
+                            @if (headers.Rows.Count == 0)
+                            {
+                                <div class="header-row" data-chid="">
+                                    <input class="header-key" placeholder="Authorization" />
+                                    <input class="header-value" type="password" placeholder="Value" />
+                                    <button class="btn btn-sm btn-icon" data-action="toggle-header" title="Show value">
+                                        <i class="fa-solid fa-eye"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-icon" data-action="remove-header" title="Remove header">
+                                        <i class="fa-solid fa-trash-can"></i>
+                                    </button>
+                                </div>
+                            }
+                            else
+                            {
+                                foreach (DataRow header in headers.Rows)
+                                {
+                                    <div class="header-row" data-chid="@header["chid"]">
+                                        <input class="header-key" placeholder="Authorization" value="@header["headerkey"]" />
+                                        <input class="header-value" type="password" placeholder="Value"
+                                               value="@header["maskedvalue"]" data-masked="true" />
+                                        <button class="btn btn-sm btn-icon" data-action="toggle-header" title="Show value">
+                                            <i class="fa-solid fa-eye"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-icon" data-action="remove-header" title="Remove header">
+                                            <i class="fa-solid fa-trash-can"></i>
+                                        </button>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </section>
+
+                    @* --- 3. Schedule --- *@
+                    <section class="api-section">
+                        <div class="api-section-head">
+                            <span class="api-section-icon"><i class="fa-solid fa-clock"></i></span>
+                            <div>
+                                <strong>Schedule</strong>
+                                <span class="input-help">When the server calls the endpoint to collect new work.</span>
+                            </div>
+                        </div>
+
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="scheduleType">Frequency</label>
+                                <select id="scheduleType">
+                                    <option value="1" selected="@(scheduleType == 1)">Daily - one time</option>
+                                    <option value="2" selected="@(scheduleType == 2)">Daily - multiple frequency</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group" id="scheduleTimeGroup" style="@(scheduleType == 1 ? "" : "display:none")">
+                                <label for="scheduleTime">Daily run time</label>
+                                <input id="scheduleTime" type="time"
+                                       value="@(config == null ? "08:30" : ApsMetadata.Cell(config, "ScheduleTime"))" />
+                            </div>
+
+                            <div class="form-group" id="everyMinutesGroup" style="@(scheduleType == 2 ? "" : "display:none")">
+                                <label for="everyMinutes">Run every</label>
+                                <div class="api-minutes-row">
+                                    <input id="everyMinutes" inputmode="numeric" maxlength="2"
+                                           value="@(string.IsNullOrEmpty(ApsMetadata.Cell(config, "EveryMinutes")) ? "30" : ApsMetadata.Cell(config, "EveryMinutes"))" />
+                                    <span class="input-help">minutes (1&ndash;99)</span>
+                                </div>
+                                <span class="field-error" data-for="everyMinutes"></span>
+                            </div>
+                        </div>
+                    </section>
+
+                    @* --- 4. Connection test --- *@
+                    <section class="api-section">
+                        <div class="api-section-head">
+                            <span class="api-section-icon"><i class="fa-solid fa-vial"></i></span>
+                            <div>
+                                <strong>Connection test</strong>
+                                <span class="input-help">Runs from the server using the saved endpoint, body and headers.</span>
+                            </div>
+                            <button class="btn btn-primary btn-sm" id="testApi">
+                                <i class="fa-solid fa-play"></i>Test API
+                            </button>
+                        </div>
+
+                        <div class="api-console">
+                            <div class="api-console-bar">
+                                <span class="api-console-dot"></span>
+                                <span class="api-console-dot"></span>
+                                <span class="api-console-dot"></span>
+                                <span class="api-console-title">Response</span>
+                            </div>
+                            <div class="code-viewer" id="apiResult">No test has been run in this session.</div>
+                        </div>
+                    </section>
+
+                </div>
+            </div>
+
+            @* ---------------- Manual mode ---------------- *@
+            <div id="manualFields" style="@(inflowType == 2 ? "" : "display:none")">
+                <div class="form-grid">
+                    @* Where the uploaded workbook is kept. Shown only for manual
+                   upload, because an API inflow has no file to store. *@
+                    <div class="form-group">
+                        <label for="archiveTarget">Store uploaded file in</label>
+                        <select id="archiveTarget">
+                            <option value="NONE">Do not keep a copy</option>
+                            <option value="LOCAL">This server</option>
+                            <option value="CLOUD">Cloud storage</option>
+                        </select>
+                        <span class="input-help">
+                            A copy of every uploaded workbook, kept for audit. The rows are
+                            imported either way.
+                        </span>
+                    </div>
+
+                    <div class="form-group" id="archiveLocalGroup" style="display:none">
+                        <label for="archiveRoot">Folder</label>
+                        <select id="archiveRoot">
+                            <option value="">Default folder</option>
+                            @foreach (var alias in folderRoots)
+                            {
+                                <option value="@alias">@alias</option>
+                            }
+                        </select>
+                        <span class="input-help">
+                            One of the folders registered in Administration, Folder Roots.
+                            Default folder uses the one marked as default.
+                        </span>
+                    </div>
+
+                    <div class="form-group" id="archiveProviderGroup" style="display:none">
+                        <label for="archiveProvider">Cloud provider</label>
+                        <select id="archiveProvider">
+                            @foreach (var code in cloudProviders)
+                            {
+                                <option value="@code">
+                                    @(code switch
+                                    {
+                                        "AWS_S3" => "AWS S3",
+                                        "AZURE_BLOB" => "Azure Blob Storage",
+                                        "GCS" => "Google Cloud Storage",
+                                        _ => code
+                                    })
+                            </option>
+                                                        }
+                        </select>
+                    </div>
+
+                    <div class="form-group archive-cloud" style="display:none">
+                        <label for="archiveBucket">Bucket</label>
+                        <input id="archiveBucket" maxlength="200" placeholder="my-pitstop-bucket" autocomplete="off" />
+                    </div>
+
+                    <div class="form-group archive-cloud" style="display:none">
+                        <label for="archiveRegion">Region</label>
+                        <input id="archiveRegion" maxlength="40" placeholder="us-east-1" autocomplete="off" />
+                    </div>
+
+                    <div class="form-group archive-cloud" style="display:none">
+                        <label for="archivePrefix">Folder prefix</label>
+                        <input id="archivePrefix" maxlength="200" placeholder="inflow" autocomplete="off" />
+                        <span class="input-help">
+                            Optional. Files are filed under prefix / use case / year / month / day.
+                        </span>
+                    </div>
+
+                    <div class="form-group archive-cloud full" style="display:none">
+                        <label for="archiveSecretRef">Credential reference</label>
+                        <input id="archiveSecretRef" maxlength="200"
+                               placeholder="secret://cwa/aws/inflow-archive" autocomplete="off" />
+                        <span class="input-help">
+                            Optional, and never the credential itself. Leave empty to use the server's
+                            own role, which is the safer choice in production.
+                        </span>
+                    </div>
+
+                    @* The storage choice is saved by the single Save button at the
+                   foot of the form, as the first of its three steps. This line
+                   only reports where that choice stands. *@
+                    <div class="form-group full" id="archiveSaveGroup">
+                        <span class="input-help" id="archiveState"></span>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="fileType">File type</label>
+                        <select id="fileType">
+                            <option value="Excel" selected>Excel (.xlsx)</option>
+                            <option disabled>Outlook .msg — not in this version</option>
+                            <option disabled>CSV — not in this version</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="templateName">Template</label>
+                        <div class="inline" style="gap:8px">
+                            <input id="templateName" readonly placeholder="No template uploaded"
+                                   value="@(config == null ? "" : Convert.ToString(config["templatename"]))" />
+                            <input type="file" id="templateFile" accept=".xlsx" style="display:none" />
+                            <button class="btn" id="uploadTemplate">
+                                <i class="fa-solid fa-file-arrow-up"></i>Upload
+                            </button>
+                        </div>
+                        <span class="field-error" data-for="templateName"></span>
+                    </div>
+
+                    <div class="form-group full">
+                        <div class="section-title-row">
+                            <div>
+                                <strong style="font-size:12px">Discovered columns</strong>
+                                <span class="input-help">
+                                    Read from the header row of the first worksheet. Applying them
+                                    reshapes APS_InflowData to match.
+                                </span>
+                            </div>
+                            <div class="inline" style="gap:8px">
+                                <span class="badge badge-neutral" id="columnCount">@columns.Rows.Count columns</span>
+                                <span class="badge badge-warning" id="columnsPendingBadge" hidden>Not applied yet</span>
+                            </div>
+                        </div>
+
+                        @* What changed against the active version, not merely that
+                       something did. *@
+                        <div id="columnDiff" class="inflow-diff" hidden></div>
+
+                        @* A table rather than chips, so the field code each column
+                       becomes is visible before it is committed. *@
+                        <div class="table-wrap" style="margin-top:8px; max-height:300px; overflow:auto">
+                            <table>
+                                <thead>
+                                    <tr><th>#</th><th>Excel column</th><th>Field code</th><th>Data type</th></tr>
+                                </thead>
+                                <tbody id="columnRows">
+                                    @if (columns.Rows.Count == 0)
+                                    {
+                                        <tr><td colspan="4">Upload a template to discover columns.</td></tr>
+                                    }
+                                    else
+                                    {
+                                        var index = 1;
+                                        foreach (DataRow column in columns.Rows)
+                                        {
+                                            <tr>
+                                                <td>@index</td>
+                                                <td>@column["ExcelColumnName"]</td>
+                                                <td class="mono">@column["FieldCode"]</td>
+                                                <td>@column["DataType"]</td>
+                                            </tr>
+                                            index++;
+                                        }
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            @* ---------------- Acknowledgement and save ---------------- *@
+            <div class="callout" style="margin-top:18px">
+                <label class="inline" style="gap:8px; cursor:pointer">
+                    <input type="checkbox" id="acknowledge" checked="@acknowledged" style="width:auto" />
+                    <span>
+                        I confirm that I have gone through the process where inflow starts for this use case.
+                    </span>
+                </label>
+            </div>
+
+            <div class="form-actions">
+                <button class="btn btn-primary" id="saveInflow" disabled="@(!acknowledged)">
+                    <i class="fa-solid fa-floppy-disk"></i>Save inflow configuration
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @* ---------------- Preview and versions ---------------- *@
+    <div class="inflow-preview">
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title-row">
+                    <div>
+                        <h2 class="card-title">Preview</h2>
+                        <p class="card-subtitle">The Inflow screen a reviewer will see.</p>
+                    </div>
+                    <span class="badge badge-neutral" id="previewState">Saved version</span>
+                </div>
+            </div>
+
+            <div class="card-body">
+                <div class="inflow-preview-frame">
+                    <div class="inflow-dropzone">
+                        <i class="fa-solid fa-file-arrow-up"></i>
+                        <strong>Drop an .xlsx file here</strong>
+                        <span id="previewHint">
+                            The header row must match the @columns.Rows.Count configured columns.
+                        </span>
+                    </div>
+
+                    <div class="inflow-preview-label">Expected columns</div>
+                    <div class="inflow-chips" id="previewChips">
+                        @if (columns.Rows.Count == 0)
+                        {
+                            <span class="input-help">No columns configured yet.</span>
+                        }
+                        else
+                        {
+                            foreach (DataRow column in columns.Rows)
+                            {
+                                <span class="badge badge-neutral">@column["ExcelColumnName"]</span>
+                            }
+                        }
+                    </div>
+
+                    <div class="inflow-preview-label">Grid as it will render</div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr id="previewHeaderRow">
+                                    @if (columns.Rows.Count == 0)
+                                    {
+                                        <th>No columns</th>
+                                    }
+                                    else
+                                    {
+                                        foreach (DataRow column in columns.Rows)
+                                        {
+                                            <th>@column["ExcelColumnName"]</th>
+                                        }
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody id="previewBody">
+                                <tr class="inflow-ghost">
+                                    <td colspan="@Math.Max(1, columns.Rows.Count)">&nbsp;</td>
+                                </tr>
+                                <tr class="inflow-ghost">
+                                    <td colspan="@Math.Max(1, columns.Rows.Count)">&nbsp;</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+            <div class="card-header">
+                <div class="card-title-row">
+                    <div>
+                        <h2 class="card-title">Template versions</h2>
+                        <p class="card-subtitle">
+                            One version is active at a time. Older versions stay readable so past
+                            uploads can always be explained.
+                        </p>
+                    </div>
+                    <span class="badge badge-neutral">@versions.Rows.Count version(s)</span>
+                </div>
+            </div>
+
+            <div class="card-body">
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Version</th><th>Template</th><th>Columns</th><th>Rows kept</th><th>Saved</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            @if (versions.Rows.Count == 0)
+                            {
+                                <tr><td colspan="6">No configuration has been saved for this use case yet.</td></tr>
+                            }
+                            else
+                            {
+                                foreach (DataRow version in versions.Rows)
+                                {
+                                    var isActive = Convert.ToInt32(version["IsActiveTemplate"]) == 1;
+                                    <tr>
+                                        <td>
+                                            <strong>v@(ApsMetadata.Cell(version, "versionno"))</strong>
+                                            @if (isActive)
+                                            {
+                                                <span class="badge badge-success">Active</span>
+                                            }
+                                </td>
+                                <td>
+                                    @(string.IsNullOrWhiteSpace(ApsMetadata.Cell(version, "templatename"))
+                                                                        ? "API" : ApsMetadata.Cell(version, "templatename"))
+                                </td>
+                                <td>@ApsMetadata.Cell(version, "columncount")</td>
+                                <td>@ApsMetadata.Cell(version, "archivedrows")</td>
+                                <td>
+                                    @Convert.ToDateTime(version["CreatedDate"]).ToString("dd MMM yyyy")
+
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-sm version-columns" type="button"
+                                                    data-cid="@ApsMetadata.Cell(version, "InflowConfigID")"
+                                                    data-version="@ApsMetadata.Cell(version, "versionno")">
+                                                View columns
+                                            </button>
+                                        </td>
+                                    </tr>
+                                                        }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div><!-- /inflow-split -->
+
+<script nonce="@Context.ApsNonce()">
+    (window.apsReady = window.apsReady || []).push(function ($) {
+        'use strict';
+
+        var discovered = [];          // columns read from the uploaded workbook
+        var templateHash = '';        // set by DiscoverTemplate, empty until then
+        var columnsPending = false;   // a workbook was uploaded and its columns are not applied yet
+        var useCaseId = @useCaseId;
+
+        function fieldError(id, message) {
+            $('[data-for="' + id + '"]').text(message || '');
+            $('#' + id).closest('.form-group').toggleClass('has-error', !!message);
+        }
+
+        function clearErrors() {
+            $('.field-error').text('');
+            $('.form-group').removeClass('has-error');
+        }
+
+        // The same rule the server uses, so the field code shown here is the one
+        // that will be stored.
+        function toFieldCode(name) {
+            return (name || '').replace(/[^A-Za-z0-9_]/g, '');
+        }
+
+       // ---- mode switching ----------------------------------------------------
+
+        $('#inflowType').on('change', function () {
+            var isApi = $(this).val() === '1';
+              $('#apiFields').toggle(isApi);
+              $('#manualFields').toggle(!isApi);
+              syncArchive();
+
+            // Nothing to preview in API mode - work arrives automatically, so there
+            // is no upload screen a reviewer would see.
+            $('#inflowSplit').toggleClass('api-mode', isApi);
+        });
+
+        $('#scheduleType').on('change', function () {
+            var multiple = $(this).val() === '2';
+            $('#everyMinutesGroup').toggle(multiple);
+            $('#scheduleTimeGroup').toggle(!multiple);
+        });
+
+        $('#acknowledge').on('change', function () {
+            $('#saveInflow').prop('disabled', !this.checked);
+        });
+
+        // ---- headers -----------------------------------------------------------
+        $('#addHeader').on('click', function () {
+            $('#headerRows').append(
+                '<div class="header-row" data-chid="">' +
+                  '<input class="header-key" placeholder="Key" />' +
+                  '<input class="header-value" type="password" placeholder="Value" />' +
+                  '<button class="btn btn-sm" data-action="toggle-header" title="Show value">' +
+                    '<i class="fa-solid fa-eye"></i></button>' +
+                  '<button class="btn btn-sm" data-action="remove-header">Remove</button>' +
+                '</div>');
+        });
+
+        $(document).on('click', '[data-action="remove-header"]', function () {
+            $(this).closest('.header-row').remove();
+        });
+
+        $(document).on('click', '[data-action="toggle-header"]', function () {
+            var $row = $(this).closest('.header-row');
+            var $value = $row.find('.header-value');
+            var $icon = $(this).find('i');
+            var chid = $row.data('chid');
+
+            if ($value.attr('type') === 'password') {
+                // A stored value is masked until the admin explicitly asks for it.
+                if (chid && $value.data('masked')) {
+                    APS.post('@Url.Action("RevealHeader", "Configuration")', { chid: chid })
+                       .then(function (response) {
+                           if (!response.success) { return; }
+                           $value.val(response.data.value).data('masked', false)
+                                 .attr('type', 'text');
+                           $icon.removeClass('fa-eye').addClass('fa-eye-slash');
+                       });
+                    return;
+                }
+                $value.attr('type', 'text');
+                $icon.removeClass('fa-eye').addClass('fa-eye-slash');
+            } else {
+                $value.attr('type', 'password');
+                $icon.removeClass('fa-eye-slash').addClass('fa-eye');
+            }
+        });
+
+        function collectHeaders() {
+            var headers = [];
+            $('#headerRows .header-row').each(function () {
+                var key = $(this).find('.header-key').val().trim();
+                var $value = $(this).find('.header-value');
+                if (!key) { return; }
+
+                // A still-masked value means "keep what is stored". Sending the mask
+                // back would overwrite the real secret with asterisks, so the value
+                // is omitted and the chid tells the server which secret to carry
+                // forward into the new configuration version.
+                headers.push({
+                    key: key,
+                    chid: $(this).data('chid') || 0,
+                    value: $value.data('masked') ? null : $value.val()
+                });
+            });
+            return headers;
+        }
+
+        // ---- connectivity and test --------------------------------------------
+        $('#checkConnectivity').on('click', function () {
+            var endpoint = $('#apiEndpoint').val().trim();
+            clearErrors();
+
+            if (!/^https?:\/\//i.test(endpoint)) {
+                fieldError('apiEndpoint', 'Enter an endpoint starting with http:// or https://.');
+                return;
+            }
+
+            APS.busy(this, APS.post('@Url.Action("CheckConnectivity", "Configuration")',
+                                    { apiendpoint: endpoint }))
+               .then(function (response) {
+                   if (!response.success) { return; }
+                   var reachable = response.data && response.data.reachable;
+                   $('#connectivityResult').html(
+                       '<span class="badge ' + (reachable ? 'badge-success' : 'badge-danger') + '">' +
+                       '<i class="fa-solid ' + (reachable ? 'fa-check' : 'fa-xmark') + '"></i> ' +
+                       APS.escapeHtml(response.message) + '</span>');
+               });
+        });
+
+        $('#testApi').on('click', function () {
+            APS.busy(this, APS.post('@Url.Action("TestApi", "Configuration")', {}))
+               .then(function (response) {
+                   $('#apiResult').text(response.success && response.data
+                       ? response.data.body
+                       : response.message);
+               });
+        });
+
+        // ---- preview and diff --------------------------------------------------
+        function renderColumns() {
+            var body = $('#columnRows').empty();
+
+            discovered.forEach(function (name, index) {
+                body.append('<tr>' +
+                    '<td>' + (index + 1) + '</td>' +
+                    '<td>' + APS.escapeHtml(name) + '</td>' +
+                    '<td class="mono">' + APS.escapeHtml(toFieldCode(name)) + '</td>' +
+                    '<td>Text</td>' +
+                    '</tr>');
+            });
+
+            $('#columnCount').text(discovered.length + ' columns');
+        }
+
+        function renderPreview() {
+            var chips = $('#previewChips').empty();
+            var header = $('#previewHeaderRow').empty();
+
+            discovered.forEach(function (name) {
+                chips.append('<span class="badge badge-neutral">' + APS.escapeHtml(name) + '</span>');
+                header.append('<th>' + APS.escapeHtml(name) + '</th>');
+            });
+
+            $('#previewHint').text('The header row must match the ' + discovered.length + ' configured columns.');
+            $('#previewBody').html(
+                '<tr class="inflow-ghost"><td colspan="' + Math.max(1, discovered.length) + '">&nbsp;</td></tr>' +
+                '<tr class="inflow-ghost"><td colspan="' + Math.max(1, discovered.length) + '">&nbsp;</td></tr>');
+
+            $('#previewState').text('Unsaved preview').addClass('badge-warning');
+        }
+
+        function renderDiff(data) {
+            var box = $('#columnDiff');
+            if (!data || !data.hasActive) { box.attr('hidden', true); return; }
+
+            var parts = [];
+            if (data.added && data.added.length) {
+                parts.push('<span class="inflow-diff-add">+ ' + data.added.length + ' added: ' +
+                           APS.escapeHtml(data.added.join(', ')) + '</span>');
+            }
+            if (data.removed && data.removed.length) {
+                parts.push('<span class="inflow-diff-remove">- ' + data.removed.length + ' removed: ' +
+                           APS.escapeHtml(data.removed.join(', ')) + '</span>');
+            }
+            if (!parts.length) {
+                parts.push('<span>No column changes against the active version.</span>');
+            }
+
+            box.html(parts.join('')).removeAttr('hidden');
+        }
+
+        // ---- template discovery ------------------------------------------------
+        $('#uploadTemplate').on('click', function () { $('#templateFile').trigger('click'); });
+
+        $('#templateFile').on('change', function () {
+            if (!this.files || !this.files.length) { return; }
+
+            var data = new FormData();
+            data.append('file', this.files[0]);
+            data.append('useCaseId', useCaseId);
+
+            APS.postFile('@Url.Action("DiscoverTemplate", "Configuration")', data)
+               .then(function (response) {
+                   if (!response.success) { return; }
+
+                   discovered = response.data.columns;
+                   templateHash = response.data.templateHash || '';
+
+                   $('#templateName').val(response.data.templatename);
+                   renderColumns();
+                   renderDiff(response.data);
+                   renderPreview();
+
+                    columnsPending = true;
+                    $('#columnsPendingBadge').removeAttr('hidden');
+                    APS.toast(response.message, 'success');
+               });
+
+            $(this).val('');
+        });
+
+                // Step two of the single Save. It runs only when a workbook was uploaded in
+            // this session and its columns have not been committed yet, so saving an
+            // unchanged configuration never creates a template version. Resolves true
+            // when there was nothing to do, so the chain carries on.
+            function applyColumnsStep() {
+                if (!columnsPending || !discovered.length) {
+                    return $.Deferred().resolve(true).promise();
+                }
+
+                return APS.post('@Url.Action("ApplyTemplate", "Configuration")', {
+                    columnsJson: JSON.stringify(discovered),
+                    useCaseId: useCaseId,
+                    templatename: $('#templateName').val().trim()
+                }, { quiet: true }).then(function (response) {
+                    if (response.success) {
+                        columnsPending = false;
+                        $('#columnsPendingBadge').attr('hidden', 'hidden');
+                        APS.toast('Template columns applied.', 'success');
+                    } else {
+                        APS.toast(response.message || 'The template columns could not be applied.', 'error');
+                    }
+                    return !!response.success;
+                });
+            }
+        // ---- versions ----------------------------------------------------------
+        $(document).on('click', '.version-columns', function () {
+            var cid = $(this).data('cid');
+            var version = $(this).data('version');
+
+            APS.post('@Url.Action("InflowVersionColumns", "Configuration")', { cid: cid })
+               .then(function (response) {
+                   if (!response.success) { return; }
+
+                   var rows = response.data.map(function (column) {
+                       return '<tr><td>' + APS.escapeHtml(column.sortorder) + '</td>' +
+                              '<td>' + APS.escapeHtml(column.columnname) + '</td>' +
+                              '<td>' + APS.escapeHtml(column.datatype) + '</td></tr>';
+                   }).join('');
+
+                   APS.openModal('Version ' + version + ' columns',
+                       '<div class="table-wrap"><table><thead><tr><th>#</th><th>Column</th>' +
+                       '<th>Data type</th></tr></thead><tbody>' + rows + '</tbody></table></div>',
+                       '<button class="btn" data-modal-close>Close</button>');
+               });
+        });
+
+        // ---- save --------------------------------------------------------------
+        function buildPayload(replaceExisting) {
+            var isApi = $('#inflowType').val() === '1';
+
+            var payload = {
+                useCaseId: useCaseId,
+                inflowtype: isApi ? 1 : 2,
+                acknowledged: $('#acknowledge').is(':checked'),
+                headersJson: isApi ? JSON.stringify(collectHeaders()) : '[]',
+                templateHash: templateHash,
+                replaceExisting: replaceExisting
+            };
+
+            if (isApi) {
+                payload.apiendpoint = $('#apiEndpoint').val().trim();
+                payload.requestbody = $('#requestBody').val();
+                payload.scheduletype = $('#scheduleType').val();
+                payload.scheduletime = $('#scheduleTime').val();
+                payload.everyminutes = $('#everyMinutes').val();
+            } else {
+                payload.filetype = $('#fileType').val();
+                payload.templatename = $('#templateName').val().trim();
+                payload.columnsJson = JSON.stringify(discovered);
+            }
+
+            return payload;
+        }
+
+        function validate() {
+            clearErrors();
+
+            if (!useCaseId) {
+                APS.toast('Select a client and process first.', 'error');
+                return false;
+            }
+
+            var isApi = $('#inflowType').val() === '1';
+
+            if (isApi) {
+                var endpoint = $('#apiEndpoint').val().trim();
+                var body = $('#requestBody').val();
+
+                if (!/^https?:\/\//i.test(endpoint)) {
+                    fieldError('apiEndpoint', 'Enter an endpoint starting with http:// or https://.');
+                    return false;
+                }
+                if (!body.trim()) {
+                    fieldError('requestBody', 'A request body is required.');
+                    return false;
+                }
+                try { JSON.parse(body); }
+                catch (error) {
+                    fieldError('requestBody', 'The request body must be valid JSON.');
+                    return false;
+                }
+                if ($('#scheduleType').val() === '2') {
+                    var minutes = Number($('#everyMinutes').val());
+                    if (!minutes || minutes < 1 || minutes > 99) {
+                        fieldError('everyMinutes', 'Enter a value between 1 and 99.');
+                        return false;
+                    }
+                }
+            } else if (!$('#templateName').val().trim()) {
+                fieldError('templateName', 'Upload the Excel template first.');
+                return false;
+            }
+
+            return true;
+        }
+       function goToInbox()
+       {
+                window.setTimeout(function () {
+                    window.location.href = '@Url.Action("Index", "Inbox")?useCaseId=' + encodeURIComponent(useCaseId);
+                }, 900);
+        }
+                // Step one: where uploaded files are kept. Only applies to manual upload,
+            // so it resolves true untouched when that block is off screen.
+            function saveStorageStep() {
+                if (!$('#archiveSaveGroup').is(':visible')) {
+                    return $.Deferred().resolve(true).promise();
+                }
+
+                return saveArchive().then(function (response) { return !!response.success; });
+            }
+
+            // Step three: the configuration itself.
+            function saveConfigurationStep(button) {
+                return APS.post('@Url.Action("SaveInflow", "Configuration")',
+                                buildPayload(0), { quiet: true })
+                    .then(function (response) {
+                        if (response.success) {
+                            APS.toast('Inflow configuration saved.', 'success');
+                            goToInbox();
+                            return true;
+                        }
+
+                        // The procedure asks before overwriting an active template
+                        // rather than replacing it silently.
+                        if (response.data && response.data.confirmReplace) {
+                            APS.confirmAction(
+                                'Replace active template',
+                                'This creates a new version for this use case and deactivates the current one. ' +
+                                'Rows already imported are archived first and stay readable. Continue?',
+                                'Replace template',
+                                function () {
+                                    APS.busy(button, APS.post('@Url.Action("SaveInflow", "Configuration")',
+                                                              buildPayload(1), { quiet: true })
+                                        .then(function (result) {
+                                            if (result.success) {
+                                                APS.toast('Inflow configuration saved.', 'success');
+                                                goToInbox();
+                                            } else {
+                                                APS.toast(result.message, 'error');
+                                            }
+                                        }));
+                                });
+                            return false;
+                        }
+
+                        APS.toast(response.message, 'error');
+                        return false;
+                    });
+            }
+
+            // One button, three steps in the order the server needs them: where files
+            // are kept, then the template columns, then the configuration. A step that
+            // has nothing to save is skipped; a step that fails stops the ones after
+            // it, so a rejected bucket can never leave a half-saved configuration.
+            $('#saveInflow').on('click', function () {
+                if (!useCaseId || useCaseId === '0') {
+                    APS.toast('Select a client and process before saving.', 'error');
+                    return;
+                }
+
+                if (!validate()) { return; }
+
+                var button = this;
+
+                APS.busy(button, saveStorageStep()
+                    .then(function (ok) { return ok ? applyColumnsStep() : false; })
+                    .then(function (ok) { return ok ? saveConfigurationStep(button) : false; }));
+            });
+
+                // ---- where uploaded files are kept --------------------------------------
+                var archiveSaveUrl = '@Url.Action("SaveInflowArchive", "Configuration")';
+                     @* Serialized rather than emitted raw: a stray </script> or a quote in
+               a bucket name would otherwise break out of this block. *@
+                var archive = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+                                                                                        string.IsNullOrWhiteSpace(archiveJson) ? null : archiveJson));
+                if (archive) { try { archive = JSON.parse(archive); } catch (e) { archive = null; } }
+
+                function syncArchive() {
+                    var manual = $('#inflowType').val() !== '1';
+                    var target = $('#archiveTarget').val();
+
+                    // The whole block only applies to manual upload; an API inflow has no file.
+                    $('#archiveTarget').closest('.form-group').toggle(manual);
+                    $('#archiveSaveGroup').toggle(manual);
+                    $('#archiveLocalGroup').toggle(manual && target === 'LOCAL');
+                    $('#archiveProviderGroup').toggle(manual && target === 'CLOUD');
+                    $('.archive-cloud').toggle(manual && target === 'CLOUD');
+                }
+
+                function archivePayload() {
+                    return {
+                        useCaseId: useCaseId,
+                        target:    $('#archiveTarget').val(),
+                        provider:  $('#archiveProvider').val() || '',
+                        root:      $('#archiveRoot').val().trim(),
+                        bucket:    $('#archiveBucket').val().trim(),
+                        region:    $('#archiveRegion').val().trim(),
+                        prefix:    $('#archivePrefix').val().trim(),
+                        secretRef: $('#archiveSecretRef').val().trim()
+                    };
+                }
+
+                function saveArchive() {
+                // Not quiet: a rejected bucket or a missing folder must be visible, which
+                // is exactly what was hiding the problem before.
+                                return APS.post(archiveSaveUrl, archivePayload(), { quiet: true })
+                        .then(function (response) {
+                            if (response.success) {
+                                $('#archiveState').text('Saved.');
+                                APS.toast('Storage location saved.', 'success');
+                            } else {
+                                $('#archiveState').text('Not saved.');
+                                APS.toast(response.message || 'The storage location could not be saved.', 'error');
+                            }
+                            return response;
+                        });
+                }
+
+                 // Saved as the first step of the single Save button; no button of its own.
+
+                $('#archiveTarget, #archiveProvider').on('change', function () {
+                    syncArchive();
+                    $('#archiveState').text('Not saved yet.');
+                });
+
+                // Restore what was saved last time.
+                if (archive) {
+                    $('#archiveTarget').val(archive.target || 'NONE');
+                    if (archive.provider) { $('#archiveProvider').val(archive.provider); }
+                    $('#archiveRoot').val(archive.root || '');
+                    $('#archiveBucket').val(archive.bucket || '');
+                    $('#archiveRegion').val(archive.region || '');
+                    $('#archivePrefix').val(archive.prefix || '');
+                    $('#archiveSecretRef').val(archive.secretRef || '');
+                }
+
+                syncArchive();
+    });
+
+</script>

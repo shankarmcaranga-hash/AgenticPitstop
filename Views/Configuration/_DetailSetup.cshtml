@@ -1,0 +1,1359 @@
+@using System.Text.Json
+@{
+    var useCaseId = (int)(ViewBag.UseCaseID ?? 0);
+    var useCases = (DataTable)ViewBag.UseCases ?? new DataTable();
+    var layoutSet = (DataSet)ViewBag.DetailLayout ?? new DataSet();
+    var tablesTable = (DataTable)ViewBag.DetailTables ?? new DataTable();
+    var procTable = (DataTable)ViewBag.DetailProcedures ?? new DataTable();
+    var joinTable = (DataTable)ViewBag.JoinableTables ?? new DataTable();
+    var hintTable = (DataTable)ViewBag.JoinHints ?? new DataTable();
+
+    var joinable = joinTable.AsEnumerable()
+        .GroupBy(r => ApsMetadata.Cell(r, "TableName"))
+        .ToDictionary(g => g.Key, g => new
+        {
+            hasInflow = ApsMetadata.Cell(g.First(), "HasInflowDataID") == "True" || ApsMetadata.Cell(g.First(), "HasInflowDataID") == "1",
+            hasUseCase = ApsMetadata.Cell(g.First(), "HasUseCaseID") == "True" || ApsMetadata.Cell(g.First(), "HasUseCaseID") == "1",
+            columns = g.OrderBy(r => Convert.ToInt32(r["ColumnOrder"]))
+                       .Select(r => new { name = ApsMetadata.Cell(r, "ColumnName"), type = ApsMetadata.Cell(r, "DataTypeName") })
+                       .ToList()
+        });
+
+    var hints = hintTable.AsEnumerable().Select(r => new
+    {
+        pt = ApsMetadata.Cell(r, "ParentTable"),
+        pc = ApsMetadata.Cell(r, "ParentColumn"),
+        rt = ApsMetadata.Cell(r, "ReferenceTable"),
+        rc = ApsMetadata.Cell(r, "ReferenceColumn")
+    }).ToList();
+    var inflowColumns = (DataTable)ViewBag.InflowColumns ?? new DataTable();
+    var questionTable = (DataTable)ViewBag.ChecklistQuestions ?? new DataTable();
+
+    // Only the questions this use case asks, and the pipelines a Refresh may run.
+    var useCaseQuestions = ((DataTable)ViewBag.UseCaseQuestions ?? new DataTable()).AsEnumerable()
+     .Where(r => ApsMetadata.Cell(r, "Mapped") == "True" || ApsMetadata.Cell(r, "Mapped") == "1")
+     .Where(r => int.TryParse(ApsMetadata.Cell(r, "QuestionId"), out _))
+     .Select(r => new
+     {
+         id = int.Parse(ApsMetadata.Cell(r, "QuestionId")),
+         text = ApsMetadata.Cell(r, "Question"),
+         category = ApsMetadata.Cell(r, "Category")
+     }).ToList();
+
+    var refreshPipelines = ((DataTable)ViewBag.RefreshPipelines ?? new DataTable()).AsEnumerable()
+        .Where(r => int.TryParse(ApsMetadata.Cell(r, "PipelineId"), out _))
+        .Select(r => new { id = int.Parse(ApsMetadata.Cell(r, "PipelineId")), name = ApsMetadata.Cell(r, "PipelineName") })
+        .ToList();
+
+    var useCaseLabel = useCases.AsEnumerable()
+        .Where(r => ApsMetadata.Cell(r, "UseCaseID") == useCaseId.ToString())
+        .Select(r => ApsMetadata.Cell(r, "UseCaseCode") + " - " + ApsMetadata.Cell(r, "UseCaseName"))
+        .FirstOrDefault() ?? "";
+
+    // --- catalogue for the pickers ------------------------------------------------
+    var tables = tablesTable.AsEnumerable()
+        .GroupBy(r => ApsMetadata.Cell(r, "TableName"))
+        .ToDictionary(g => g.Key, g => g.OrderBy(r => Convert.ToInt32(r["ColumnOrder"]))
+                                       .Select(r => ApsMetadata.Cell(r, "ColumnName")).ToList());
+
+    var procedures = procTable.AsEnumerable()
+        .GroupBy(r => ApsMetadata.Cell(r, "ProcedureName"))
+        .ToDictionary(g => g.Key, g => new
+        {
+            columns = g.Where(r => r["ColumnName"] != DBNull.Value)
+                       .OrderBy(r => Convert.ToInt32(r["ColumnOrder"]))
+                       .Select(r => ApsMetadata.Cell(r, "ColumnName")).ToList(),
+            error = g.Select(r => ApsMetadata.Cell(r, "DescribeError")).FirstOrDefault(e => !string.IsNullOrEmpty(e))
+        });
+
+    var inflowFields = inflowColumns.AsEnumerable()
+        .Select(r => new { code = ApsMetadata.Cell(r, "FieldCode"), label = ApsMetadata.Cell(r, "ExcelColumnName") })
+        .Where(f => !string.IsNullOrEmpty(f.code))
+        .ToList();
+
+    var questions = questionTable.AsEnumerable()
+        .Select(r => new { idText = ApsMetadata.Cell(r, "QuestionId"), text = ApsMetadata.Cell(r, "Question"), category = ApsMetadata.Cell(r, "Category") })
+        .Where(q => int.TryParse(q.idText, out _))
+        .Select(q => new { id = int.Parse(q.idText), q.text, q.category })
+        .ToList();
+
+    // --- saved layouts, one per workspace -------------------------------------------
+    var modeRows = layoutSet.Tables.Count > 0 ? layoutSet.Tables[0] : new DataTable();
+    var tileRows = layoutSet.Tables.Count > 1 ? layoutSet.Tables[1] : new DataTable();
+    var tabRows = layoutSet.Tables.Count > 2 ? layoutSet.Tables[2] : new DataTable();
+
+    object LayoutFor(string mode) => new
+    {
+        saved = modeRows.AsEnumerable().Any(r => ApsMetadata.Cell(r, "WorkspaceMode") == mode),
+        tileSourceSpecJson = modeRows.AsEnumerable()
+           .Where(r => ApsMetadata.Cell(r, "WorkspaceMode") == mode)
+           .Select(r => ApsMetadata.Cell(r, "TileSourceSpecJson")).FirstOrDefault(),
+        tiles = tileRows.AsEnumerable()
+            .Where(r => ApsMetadata.Cell(r, "WorkspaceMode") == mode)
+            .Select(r => new
+            {
+                title = ApsMetadata.Cell(r, "Title"),
+                icon = ApsMetadata.Cell(r, "Icon"),
+                accent = ApsMetadata.Cell(r, "Accent"),
+                sourceType = ApsMetadata.Cell(r, "SourceType"),
+                sourceName = ApsMetadata.Cell(r, "SourceName"),
+                valueColumn = ApsMetadata.Cell(r, "ValueColumn"),
+                subtitleColumn = ApsMetadata.Cell(r, "SubtitleColumn"),
+                valueFormat = ApsMetadata.Cell(r, "ValueFormat"),
+                sourceSpecJson = ApsMetadata.Cell(r, "SourceSpecJson"),
+                subtitleSpecJson = ApsMetadata.Cell(r, "SubtitleSpecJson"),
+            }).ToList(),
+        tabs = tabRows.AsEnumerable()
+            .Where(r => ApsMetadata.Cell(r, "WorkspaceMode") == mode)
+            .Select(r => new
+            {
+                label = ApsMetadata.Cell(r, "Label"),
+                icon = ApsMetadata.Cell(r, "Icon"),
+                displayType = ApsMetadata.Cell(r, "DisplayType"),
+                settingsJson = ApsMetadata.Cell(r, "SettingsJson")
+            }).ToList()
+    };
+}
+
+@* The use case is chosen once for the whole workspace, at the top of the
+   Configuration screen. Tiles, tabs and the checklist below belong to it. *@
+
+@if (useCaseId <= 0)
+{
+    <div class="card">
+        <div class="card-body">
+            <div class="callout callout-warning">
+                Choose a client and process above. Each use case has its own detail layout.
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="cfg-split">
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title-row">
+                    <div>
+                        <h2 class="card-title">Detail screen setup</h2>
+                        <p class="card-subtitle">
+                            Tiles and tabs a reviewer sees when opening a record for <strong>@useCaseLabel</strong>.
+                        </p>
+                    </div>
+                    <button type="button" class="btn btn-primary" id="saveLayout">
+                        <i class="fa-solid fa-floppy-disk"></i>Save layout
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="dl-modes" role="tablist" aria-label="Workspace type">
+                    <button type="button" class="dl-mode active" data-mode="1">
+                        <i class="fa-solid fa-table-list"></i>Data Review Workspace
+                        <span class="badge" data-mode-state="1"></span>
+                    </button>
+                    <button type="button" class="dl-mode" data-mode="2">
+                        <i class="fa-solid fa-folder-open"></i>Evidence Review Workspace
+                        <span class="badge" data-mode-state="2"></span>
+                    </button>
+                </div>
+
+                @* Tiles and tabs sit next to each other rather than stacked, so
+                   the tabs are reachable without scrolling past every tile. The
+                   two sections are unchanged; only their container is a grid. *@
+                @* Tiles and tabs are two sections of one layout, so they share a
+                   strip and only one is shown at a time. Tiles open first,
+                   because a reviewer reads them before the tabs below. The
+                   preview is unaffected - it always shows both. *@
+                <div class="tabs" id="detailSections" role="tablist" aria-label="Layout section">
+                    <button type="button" class="tab-button active" data-section="tiles">
+                        <i class="fa-solid fa-table-cells-large"></i>Tiles
+                        <span class="badge badge-neutral" data-section-count="tiles"></span>
+                    </button>
+                    <button type="button" class="tab-button" data-section="tabs">
+                        <i class="fa-solid fa-folder-tree"></i>Tabs
+                        <span class="badge badge-neutral" data-section-count="tabs"></span>
+                    </button>
+                </div>
+
+                <div id="detailEditor">
+                    <section class="dl-section" data-section="tiles">
+                        <div class="section-title-row">
+                            <div>
+                                <strong style="font-size:12px">Tiles</strong>
+                                <span class="input-help">Single values shown across the top, read for the open record.</span>
+                            </div>
+                            <button type="button" class="btn btn-sm" id="addTile"><i class="fa-solid fa-plus"></i>Add tile</button>
+                        </div>
+                        <div id="sharedSource"></div>
+                        <div id="tileList"></div>
+                    </section>
+
+                    <section class="dl-section" data-section="tabs" hidden>
+                        <div class="section-title-row">
+                            <div>
+                                <strong style="font-size:12px">Tabs</strong>
+                                <span class="input-help">Shown below the tiles in this order. Click a tab to edit it.</span>
+                            </div>
+                            <button type="button" class="btn btn-sm" id="addTab"><i class="fa-solid fa-plus"></i>Add tab</button>
+                        </div>
+                        <div id="tabList"></div>
+                    </section>
+                </div>
+            </div>
+        </div>
+
+        <aside class="cfg-preview">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title-row">
+                        <div>
+                            <h2 class="card-title">Preview</h2>
+                            <p class="card-subtitle">The detail screen a reviewer will see.</p>
+                        </div>
+                        <span class="badge badge-neutral">Live</span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="pv-frame" id="detailPreview"></div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <script src="~/js/source-builder.js" asp-append-version="true" defer nonce="@Context.ApsNonce()"></script>
+    <script nonce="@Context.ApsNonce()">
+                (window.apsReady = window.apsReady || []).push(function ($) {
+                    'use strict';
+
+                    // --- vocabularies and catalogue ------------------------------------------------
+                    var ICONS = @Html.Raw(JsonSerializer.Serialize(ApsMetadata.DetailIcons));
+                    var ACCENTS = @Html.Raw(JsonSerializer.Serialize(ApsMetadata.DetailAccents));
+                    var COLORS = @Html.Raw(JsonSerializer.Serialize(ApsMetadata.DetailStatusColors));
+                    var FORMATS = @Html.Raw(JsonSerializer.Serialize(ApsMetadata.DetailValueFormats));
+                    var DISPLAY_TYPES = [['TABLE', 'Table'], ['SUMMARY', 'Summary cards'], ['CHECKLIST', 'Checklist'],
+                                     ['DOCVIEWER', 'Document viewer'], ['NOTES', 'Notes']];
+                    var TILE_SOURCES = [['INFLOW', 'Inflow record'], ['TABLE', 'Table'], ['PROC', 'Stored procedure']];
+                    var TABLE_SOURCES = [['INFLOW', 'Inflow record'], ['TABLE', 'Table'], ['PROC', 'Stored procedure']];
+                    var SECTION_LABELS = { documents: 'Document collection', preview: 'Document preview', fields: 'Extracted fields' };
+                    var DOC_MAP = [['docPath', 'DocPath'], ['docName', 'DocName'], ['inflowDataId', 'InflowDataID'], ['field', 'Field'], ['value', 'Value']];
+
+                var catalog =
+                {
+                    tables: @Html.Raw(JsonSerializer.Serialize(tables)),
+                    procedures: @Html.Raw(JsonSerializer.Serialize(procedures)),
+                    inflow: @Html.Raw(JsonSerializer.Serialize(inflowFields)),
+                    questions: @Html.Raw(JsonSerializer.Serialize(questions)),
+                    joinable: @Html.Raw(JsonSerializer.Serialize(joinable)),
+                    hints: @Html.Raw(JsonSerializer.Serialize(hints)),
+                    useCaseQuestions: @Html.Raw(JsonSerializer.Serialize(useCaseQuestions)),
+                    refreshPipelines: @Html.Raw(JsonSerializer.Serialize(refreshPipelines))
+                };
+
+                 APSSource.init(catalog);
+
+                    var saved = { 1: @Html.Raw(JsonSerializer.Serialize(LayoutFor("1"))), 2: @Html.Raw(JsonSerializer.Serialize(LayoutFor("2"))) };
+                    var saveUrl = '@Url.Action("SaveDetailLayout", "Configuration")';
+
+                    // --- helpers ----------------------------------------------------------------------
+                    function esc(v) { return APS.escapeHtml(v === null || v === undefined ? '' : v); }
+                    function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+                    function pairs(list) { return list.map(function (v) { return [v, cap(v)]; }); }
+
+                    function defaultSettings(type) {
+                        switch (type) {
+                            case 'SUMMARY':
+                                return { sourceType: 'TABLE', sourceName: '', cards: [] };
+                            case 'CHECKLIST':
+                            return {
+                                questionIds: [],
+                                evidence: { spec: null, questionColumn: '', resultColumn: '', justificationColumn: '' },
+                                evidenceColumns: [],
+                                resultSource: { procedure: '', questionColumn: '', resultColumn: '', commentColumn: '' },
+                                colors: [{ value: 'Pass', color: 'success' }, { value: 'Fail', color: 'danger' }]
+                            };
+                            case 'NOTES':
+                            return {
+                                live: { spec: null, sourceColumn: '', dateColumn: '', contentColumn: '', order: 'desc' },
+                                summary: { spec: null, sourceColumn: '', dateColumn: '', contentColumn: '', order: 'desc' },
+                                defaultView: 'live',
+                                refreshPipelineId: 0
+                            };
+                            case 'DOCVIEWER':
+                                return {
+                                 procedure: '',
+                                map: { docPath: '', docName: '', inflowDataId: '', field: '', value: '', pageNo: '', fieldOrder: '', fieldKey: '' },
+                                summaryField: 'Summary',
+                                edit: { enabled: false, table: '', keyColumn: '', valueColumn: '' },
+                                    sections: [{ key: 'documents', width: 3 }, { key: 'preview', width: 6 }, { key: 'fields', width: 3 }]
+                                };
+                            default:
+                                return { sourceType: 'TABLE', sourceName: '', pageSize: 25, columns: [] };
+                        }
+                    }
+
+                    function parseSpec(json) {
+                        if (!json) { return null; }
+                        try { return JSON.parse(json); } catch (e) { return null; }
+                    }
+
+                    function hydrate(layout) {
+                        return {
+                         tiles: layout.tiles.map(function (t) {
+                            return {
+                                title: t.title, icon: t.icon, accent: t.accent, sourceType: t.sourceType,
+                                sourceName: t.sourceName || '', valueColumn: t.valueColumn,
+                                subtitleColumn: t.subtitleColumn || '', valueFormat: t.valueFormat || 'text',
+                                spec: parseSpec(t.sourceSpecJson),
+                                subtitleSpec: parseSpec(t.subtitleSpecJson)
+                            };
+                        }),
+                        sharedSpec: parseSpec(layout.tileSourceSpecJson),
+                            tabs: layout.tabs.map(function (b) {
+                                var s = defaultSettings(b.displayType), parsed = {};
+                                try { parsed = JSON.parse(b.settingsJson) || {}; } catch (e) { parsed = {}; }
+                                Object.keys(parsed).forEach(function (k) {
+                                    if (parsed[k] !== null && parsed[k] !== undefined) { s[k] = parsed[k]; }
+                                });
+                                if (s.sourceName === null || s.sourceName === undefined) { s.sourceName = ''; }
+                                s.spec = parseSpec(s.specJson);
+                                if (s.resultSource && !s.resultSource.commentColumn) { s.resultSource.commentColumn = ''; }
+                                return { label: b.label, icon: b.icon, displayType: b.displayType, settings: s };
+                            })
+                        };
+                    }
+
+                    var state = {
+                        mode: 1,
+                        layouts: { 1: hydrate(saved[1]), 2: hydrate(saved[2]) },
+                        dirty: { 1: false, 2: false },
+                        openTab: 0,
+                        openTile: 0,
+                        section: 'tiles',
+                        previewTab: 0
+                    };
+
+                    function layout() { return state.layouts[state.mode]; }
+
+                    function getPath(obj, path) {
+                        return String(path).split('.').reduce(function (o, key) { return o === undefined ? undefined : o[key]; }, obj);
+                    }
+                    function parentPath(path) { var parts = String(path).split('.'); parts.pop(); return parts.join('.'); }
+        @*             function setPath(obj, path, value) {
+                var parts = String(path).split('.');
+                var last = parts.pop();
+                getPath(obj, parts.join('.') || null === null ? parts.join('.') : '')[last] = value;
+            } *@
+
+                    function sourceNames(type) {
+                        if (type === 'TABLE') { return Object.keys(catalog.tables).sort(); }
+                        if (type === 'PROC') { return Object.keys(catalog.procedures).sort(); }
+                        return [];
+                    }
+                    function sourceColumns(type, name) {
+                        if (type === 'INFLOW') { return catalog.inflow.map(function (f) { return f.code; }); }
+                        if (type === 'TABLE') { return catalog.tables[name] || []; }
+                        if (type === 'PROC') { return (catalog.procedures[name] || {}).columns || []; }
+                        return [];
+                    }
+                    function columnLabel(type, column) {
+                        if (type === 'SPEC' || !type) { return column; }
+                        if (type === 'INFLOW') {
+                            var f = catalog.inflow.filter(function (x) { return x.code === column; })[0];
+                            return f ? f.label : column;
+                        }
+                        return column;
+                    }
+                    function guess(columns, name) {
+                        var hit = columns.filter(function (c) { return c.toLowerCase() === name.toLowerCase(); })[0];
+                        return hit || '';
+                    }
+
+                    // --- form fragments -------------------------------------------------------------
+                    function opt(value, label, selected) {
+                        return '<option value="' + esc(value) + '"' + (String(value) === String(selected) ? ' selected' : '') + '>' + esc(label) + '</option>';
+                    }
+                    function select(bind, list, selected, placeholder, after, attrs) {
+                        var known = list.some(function (o) { return String(o[0]) === String(selected); });
+                        return '<select data-bind="' + bind + '"' + (after ? ' data-after="' + after + '"' : '') + (attrs || '') + '>' +
+                               (placeholder !== undefined && placeholder !== null ? opt('', placeholder, selected) : '') +
+                               (selected && !known ? opt(selected, selected + ' (missing)', selected) : '') +
+                               list.map(function (o) { return opt(o[0], o[1], selected); }).join('') +
+                               '</select>';
+                    }
+                                // Shorter alias used by the checklist and notes panels.
+                    function sel(bind, list, selected, placeholder, after, attrs) {
+                        return select(bind, list, selected, placeholder, after, attrs);
+                    }
+
+                    function input(bind, value, attrs) {
+                        return '<input data-bind="' + bind + '" value="' + esc(value) + '"' + (attrs || '') + ' />';
+                    }
+                    function field(label, html, wide) {
+                        return '<div class="dl-field' + (wide ? ' dl-wide' : '') + '"><label>' + label + '</label>' + html + '</div>';
+                    }
+                    function iconSelect(bind, icon) {
+                        return '<div class="dl-icon-pick"><span class="dl-icon-sample"><i class="fa-solid ' + esc(icon) + '"></i></span>' +
+                               select(bind, ICONS.map(function (n) { return [n, n.replace(/^fa-/, '').replace(/-/g, ' ')]; }), icon) +
+                               '</div>';
+                    }
+                    function procError(type, name) {
+                        var p = type === 'PROC' ? catalog.procedures[name] : null;
+                        return p && p.error ? '<span class="field-error">Columns cannot be read: ' + esc(p.error) + '</span>' : '';
+                    }
+                    function tools(list, i, count, noRemove) {
+                        return '<span class="dl-tools">' +
+                            '<button type="button" class="btn btn-sm" data-action="move" data-list="' + list + '" data-i="' + i + '" data-dir="-1"' +
+                                (i === 0 ? ' disabled' : '') + ' aria-label="Move up"><i class="fa-solid fa-arrow-up"></i></button>' +
+                            '<button type="button" class="btn btn-sm" data-action="move" data-list="' + list + '" data-i="' + i + '" data-dir="1"' +
+                                (i === count - 1 ? ' disabled' : '') + ' aria-label="Move down"><i class="fa-solid fa-arrow-down"></i></button>' +
+                            (noRemove ? '' : '<button type="button" class="btn btn-sm" data-action="remove" data-list="' + list + '" data-i="' + i + '" aria-label="Remove"><i class="fa-solid fa-trash"></i></button>') +
+                            '</span>';
+                    }
+                    function emptyNote(text) { return '<div class="dl-empty">' + esc(text) + '</div>'; }
+
+                    function addBtn(action, label, attrs) {
+                        return '<div class="dl-add-row"><button type="button" class="btn btn-sm" data-action="' + action + '"' +
+                               (attrs || '') + '><i class="fa-solid fa-plus"></i>' + esc(label) + '</button></div>';
+                    }
+
+                    // --- tiles ------------------------------------------------------------------------
+                            function tileHtml(t, i, count) {
+                    var p = 'tiles.' + i + '.';
+                    var shared = layout().sharedSpec;
+
+                    // Where this tile's columns come from: the shared source, its own
+                    // spec, or the original table-and-procedure settings.
+                    var valueColumns, subtitleColumns, sourceRow;
+
+                    if (shared) {
+                        valueColumns = subtitleColumns = APSSource.columns(shared).map(function (c) { return [c, c]; });
+                        sourceRow = field('Source', '<div class="dl-source-fixed"><i class="fa-solid fa-link"></i>' +
+                            esc(APSSource.describe(shared)) + '</div>', true);
+                    } else if (t.spec) {
+                        valueColumns = APSSource.columns(t.spec).map(function (c) { return [c, c]; });
+                        subtitleColumns = t.subtitleSpec
+                            ? APSSource.columns(t.subtitleSpec).map(function (c) { return [c, c]; })
+                            : valueColumns;
+
+                        sourceRow = field('Source',
+                            '<div class="dl-source-built"><code>' + esc(APSSource.describe(t.spec)) + '</code>' +
+                            '<button type="button" class="btn btn-sm" data-act="edit-spec" data-tile="' + i + '">Change</button>' +
+                            '<button type="button" class="btn btn-sm" data-act="clear-spec" data-tile="' + i + '">Use a simple source</button>' +
+                            '</div>', true);
+                    } else {
+                        var columns = sourceColumns(t.sourceType, t.sourceName).map(function (c) { return [c, columnLabel(t.sourceType, c)]; });
+                        valueColumns = subtitleColumns = columns;
+
+                        sourceRow = field('Source', select(p + 'sourceType', TILE_SOURCES, t.sourceType, null, 'tileSource')) +
+                            (t.sourceType === 'INFLOW' ? '' :
+                                field(t.sourceType === 'TABLE' ? 'Table' : 'Stored procedure',
+                                      select(p + 'sourceName', sourceNames(t.sourceType).map(function (n) { return [n, n]; }), t.sourceName, 'Select', 'tileSource') +
+                                      procError(t.sourceType, t.sourceName), true)) +
+                            field('&nbsp;', '<button type="button" class="btn btn-sm" data-act="build-spec" data-tile="' + i + '">' +
+                                '<i class="fa-solid fa-diagram-project"></i>Build from tables</button>');
+                    }
+
+                    var subtitleRow = field('Subtitle column', select(p + 'subtitleColumn', subtitleColumns, t.subtitleColumn, 'None')) +
+                        (shared ? '' :
+                            field('&nbsp;', t.subtitleSpec
+                                ? '<div class="dl-source-built"><code>' + esc(APSSource.describe(t.subtitleSpec)) + '</code>' +
+                                  '<button type="button" class="btn btn-sm" data-act="clear-subtitle-spec" data-tile="' + i + '">Same as value</button></div>'
+                                : '<button type="button" class="btn btn-sm" data-act="build-subtitle-spec" data-tile="' + i + '">' +
+                                  '<i class="fa-solid fa-diagram-project"></i>Different source for subtitle</button>'));
+
+                                        // Collapsed by default, exactly as a tab is: the model holds every
+                            // value, so a closed tile keeps its settings and nothing is read
+                            // from the DOM.
+                            var open = state.openTile === i;
+
+                            return '<div class="dl-item' + (open ? ' is-open' : '') + '">' +
+                                '<div class="dl-item-head is-toggle" data-action="toggle-tile" data-i="' + i + '">' +
+                                    '<div class="dl-item-title"><i class="fa-solid ' + esc(t.icon) + '"></i>' +
+                                    '<span class="dl-item-name">' + esc(t.title || 'Untitled tile') + '</span>' +
+                                    '<i class="fa-solid ' + (open ? 'fa-chevron-up' : 'fa-chevron-down') + ' dl-chevron"></i></div>' +
+                                    tools('tiles', i, count) + '</div>' +
+                                (open
+                                    ? '<div class="dl-body"><div class="dl-grid">' +
+                                        field('Title', input(p + 'title', t.title, ' maxlength="100"')) +
+                                        field('Icon', iconSelect(p + 'icon', t.icon)) +
+                                        field('Accent', select(p + 'accent', pairs(ACCENTS), t.accent)) +
+                                        field('Format', select(p + 'valueFormat', pairs(FORMATS), t.valueFormat)) +
+                                        sourceRow +
+                                        field('Value column', select(p + 'valueColumn', valueColumns, t.valueColumn, 'Select column')) +
+                                        subtitleRow +
+                                      '</div></div>'
+                                    : '') +
+                                '</div>';
+                        }
+
+                   function sharedSourceHtml() {
+                    var l = layout();
+                    var on = !!l.sharedSpec;
+
+                    return '<div class="dl-shared' + (on ? ' is-on' : '') + '">' +
+                        '<label class="dl-check"><input type="checkbox" id="useShared"' + (on ? ' checked' : '') + ' />' +
+                            '<span>All tiles read from one source</span></label>' +
+                        (on
+                            ? '<div class="dl-shared-body">' +
+                                '<code>' + esc(APSSource.describe(l.sharedSpec)) + '</code>' +
+                                '<button type="button" class="btn btn-sm" data-act="edit-shared">' +
+                                    '<i class="fa-solid fa-sliders"></i>Change source</button>' +
+                              '</div>'
+                            : '<span class="input-help">Turn this on when one stored procedure or join fills every tile. ' +
+                              'Each tile then picks only its value and subtitle columns.</span>') +
+                        '</div>';
+                }
+
+                    // --- tabs -------------------------------------------------------------------------
+                    function tabHtml(b, i, count) {
+                        var p = 'tabs.' + i + '.';
+                        var open = state.openTab === i;
+                        var typeLabel = (DISPLAY_TYPES.filter(function (d) { return d[0] === b.displayType; })[0] || ['', ''])[1];
+
+                        return '<div class="dl-item' + (open ? ' is-open' : '') + '">' +
+                            '<div class="dl-item-head is-toggle" data-action="toggle-tab" data-i="' + i + '">' +
+                                '<div class="dl-item-title"><i class="fa-solid ' + esc(b.icon) + '"></i>' +
+                                '<span class="dl-item-name">' + esc(b.label || 'Untitled tab') + '</span>' +
+                                '<span class="badge badge-neutral">' + esc(typeLabel) + '</span>' +
+                                '<i class="fa-solid ' + (open ? 'fa-chevron-up' : 'fa-chevron-down') + ' dl-chevron"></i></div>' +
+                                tools('tabs', i, count) + '</div>' +
+                            (open
+                                ? '<div class="dl-body"><div class="dl-grid">' +
+                                      field('Tab label', input(p + 'label', b.label, ' maxlength="100"')) +
+                                      field('Icon', iconSelect(p + 'icon', b.icon)) +
+                                      field('Display type', select(p + 'displayType', DISPLAY_TYPES, b.displayType, null, 'tabType')) +
+                                  '</div>' + settingsHtml(b, p + 'settings.') + '</div>'
+                                : '') +
+                            '</div>';
+                    }
+
+                    function settingsHtml(b, p) {
+                        switch (b.displayType) {
+                            case 'SUMMARY': return summarySettingsHtml(b.settings, p);
+                            case 'CHECKLIST': return checklistSettingsHtml(b.settings, p);
+                            case 'DOCVIEWER': return docSettingsHtml(b.settings, p);
+                            case 'NOTES': return notesSettingsHtml(b.settings, p);
+                            default: return tableSettingsHtml(b.settings, p);
+                        }
+                    }
+
+                   function sourcePicker(s, p, sourceKinds) {
+                    if (s.spec) {
+                        return field('Source',
+                            '<div class="dl-source-built"><code>' + esc(APSSource.describe(s.spec)) + '</code>' +
+                            '<button type="button" class="btn btn-sm" data-act="edit-tab-spec" data-prefix="' + p + '">Change</button>' +
+                            '<button type="button" class="btn btn-sm" data-act="clear-tab-spec" data-prefix="' + p + '">Use a simple source</button>' +
+                            '</div>', true);
+                    }
+
+                     return field('Source', select(p + 'sourceType', sourceKinds, s.sourceType, null, 'tabSource')) +
+                        (s.sourceType === 'INFLOW' ? '' :
+                            field(s.sourceType === 'TABLE' ? 'Table' : 'Stored procedure',
+                                  select(p + 'sourceName', sourceNames(s.sourceType).map(function (n) { return [n, n]; }), s.sourceName, 'Select', 'tabSource') +
+                                  procError(s.sourceType, s.sourceName), true)) +
+                        field('&nbsp;', '<button type="button" class="btn btn-sm" data-act="build-tab-spec" data-prefix="' + p + '">' +
+                            '<i class="fa-solid fa-diagram-project"></i>Build from tables</button>');
+                     }
+
+                    function tableSettingsHtml(s, p) {
+                        var available = s.spec ? APSSource.columns(s.spec) : sourceColumns(s.sourceType, s.sourceName);
+                        var chosen = s.columns.map(function (c, j) {
+                            return '<div class="dl-row">' +
+                                                                '<span class="dl-col-name">' + esc(s.spec ? c.column : columnLabel(s.sourceType, c.column)) + '</span>' +
+                                input(p + 'columns.' + j + '.header', c.header, ' maxlength="100" placeholder="Display name"') +
+                                tools(p + 'columns', j, s.columns.length) +
+                                '</div>';
+                        }).join('');
+                        var remaining = available.filter(function (c) { return !s.columns.some(function (x) { return x.column === c; }); });
+
+                        return '<div class="dl-sub">' +
+                            '<div class="dl-grid">' + sourcePicker(s, p, TABLE_SOURCES) +
+                                field('Rows per page', input(p + 'pageSize', s.pageSize, ' type="number" min="5" max="200" data-type="number"')) +
+                            '</div>' +
+                                 (s.spec || s.sourceName || s.sourceType === 'INFLOW'
+                            ? '<div class="dl-label">Columns and display names</div>' +
+                              (chosen || emptyNote('No columns chosen yet.')) +
+                                  (remaining.length
+                                      ? '<div class="dl-add-row"><select class="dl-add-select">' +
+                                                                                        remaining.map(function (c) { return opt(c, s.spec ? c : columnLabel(s.sourceType, c), ''); }).join('') + '</select>' +
+                                            '<button type="button" class="btn btn-sm" data-action="add-column" data-list="' + p + 'columns">Add column</button>' +
+                                            '<button type="button" class="btn btn-sm" data-action="add-all-columns" data-list="' + p + 'columns">Add all</button></div>'
+                                      : '')
+                                : '<p class="input-help">Choose a source to pick its columns.</p>') +
+                            '</div>';
+                    }
+
+                    function summarySettingsHtml(s, p) {
+                        var columns = (s.spec ? APSSource.columns(s.spec) : sourceColumns(s.sourceType, s.sourceName))
+                        .map(function (c) { return [c, s.spec ? c : columnLabel(s.sourceType, c)]; });
+                        var cards = s.cards.map(function (c, j) {
+                            var cp = p + 'cards.' + j + '.';
+                            return '<div class="dl-card-row">' +
+                                '<div class="dl-grid">' +
+                                    field('Card title', input(cp + 'title', c.title, ' maxlength="100"')) +
+                                    field('Icon', iconSelect(cp + 'icon', c.icon)) +
+                                    field('Accent', select(cp + 'accent', pairs(ACCENTS), c.accent)) +
+                                    field('Column', select(cp + 'column', columns, c.column, 'Select column')) +
+                                    field('Format', select(cp + 'format', pairs(FORMATS), c.format)) +
+                                '</div>' + tools(p + 'cards', j, s.cards.length) + '</div>';
+                        }).join('');
+
+                        return '<div class="dl-sub">' +
+                            '<div class="dl-grid">' + sourcePicker(s, p, TILE_SOURCES) + '</div>' +
+                            '<div class="dl-label">Cards</div>' + (cards || emptyNote('No cards yet.')) +
+                            '<div class="dl-add-row"><button type="button" class="btn btn-sm" data-action="add-item" data-template="card" data-list="' + p + 'cards">' +
+                                '<i class="fa-solid fa-plus"></i>Add card</button></div>' +
+                            '</div>';
+                    }
+
+                            function checklistSettingsHtml(s, p) {
+                    var ev = s.evidence || {};
+                    var columns = ev.spec ? APSSource.columns(ev.spec) : [];
+
+                    var questionHtml = catalog.useCaseQuestions.length
+                        ? '<div class="dl-questions">' + (function () {
+                            var groups = {};
+                            catalog.useCaseQuestions.forEach(function (q) {
+                                var g = q.category || 'General';
+                                (groups[g] = groups[g] || []).push(q);
+                            });
+                            return Object.keys(groups).sort().map(function (g) {
+                                return '<div class="dl-qgroup"><div class="dl-qgroup-title">' + esc(g) + '</div>' +
+                                    groups[g].map(function (q) {
+                                        return '<label class="dl-check"><input type="checkbox" class="dl-question" data-list="' + p + 'questionIds" value="' + q.id + '"' +
+                                               (s.questionIds.indexOf(q.id) >= 0 ? ' checked' : '') + ' /><span>' + esc(q.text) + '</span></label>';
+                                    }).join('') + '</div>';
+                            }).join('');
+                        })() + '</div>'
+                        : emptyNote('No questions are mapped to this use case. Map them on the Checklist Master tab.');
+
+                    var evidenceRows = (s.evidenceColumns || []).map(function (c, j) {
+                        var cp = p + 'evidenceColumns.' + j + '.';
+                        return '<div class="dl-row">' +
+                            sel(cp + 'column', columns.map(function (x) { return [x, x]; }), c.column, 'Select column') +
+                            input(cp + 'header', c.header, ' maxlength="100" placeholder="Label shown to the reviewer"') +
+                            tools(p + 'evidenceColumns', j, s.evidenceColumns.length) +
+                            '</div>';
+                    }).join('');
+
+                    return '<div class="dl-sub">' +
+                        '<div class="dl-label">Questions <span class="badge badge-info dl-qcount">' +
+                            (s.questionIds.length ? s.questionIds.length + ' selected' : 'all mapped questions') + '</span>' +
+                            '<button type="button" class="btn btn-sm" data-action="questions-all" data-list="' + p + 'questionIds">Select all</button>' +
+                            '<button type="button" class="btn btn-sm" data-action="questions-none" data-list="' + p + 'questionIds">Use all mapped</button></div>' +
+                        questionHtml +
+
+                        '<div class="dl-label">Evidence and results</div>' +
+                        (ev.spec
+                            ? '<div class="dl-source-built"><code>' + esc(APSSource.describe(ev.spec)) + '</code>' +
+                              '<button type="button" class="btn btn-sm" data-act="edit-evidence" data-prefix="' + p + 'evidence">Change</button></div>'
+                            : '<button type="button" class="btn btn-sm" data-act="edit-evidence" data-prefix="' + p + 'evidence">' +
+                              '<i class="fa-solid fa-diagram-project"></i>Choose the evidence collection</button>') +
+
+                        (ev.spec
+                            ? '<div class="dl-grid" style="margin-top:10px">' +
+                                field('Question ID column', sel(p + 'evidence.questionColumn', columns.map(function (x) { return [x, x]; }), ev.questionColumn, 'Select column')) +
+                                field('Result column', sel(p + 'evidence.resultColumn', columns.map(function (x) { return [x, x]; }), ev.resultColumn, 'Select column')) +
+                                field('AI justification column', sel(p + 'evidence.justificationColumn', columns.map(function (x) { return [x, x]; }), ev.justificationColumn, 'None')) +
+                              '</div>' +
+                              '<div class="dl-label">Evidence columns shown under each question</div>' +
+                              (evidenceRows || emptyNote('No evidence columns yet.')) +
+                              addBtn('add-evidence-column', 'Add evidence column', ' data-prefix="' + p + '"')
+                            : '') +
+
+                        '<div class="dl-label">Result colours</div>' +
+                        ((s.colors || []).map(function (c, j) {
+                            var cp = p + 'colors.' + j + '.';
+                            return '<div class="dl-row">' +
+                                input(cp + 'value', c.value, ' maxlength="50" placeholder="Result value, e.g. Pass"') +
+                                sel(cp + 'color', pairs(COLORS), c.color, null, 'refresh') +
+                                '<span class="badge badge-' + esc(c.color) + '">' + esc(c.value || 'Sample') + '</span>' +
+                                tools(p + 'colors', j, s.colors.length) +
+                                '</div>';
+                        }).join('') || emptyNote('No colour rules yet.')) +
+                        addBtn('add-item', 'Add colour rule', ' data-template="rule" data-list="' + p + 'colors"') +
+                        '</div>';
+                }
+
+                function notesSettingsHtml(s, p) {
+                        var feed = function (name, label) {
+                        var f = s[name] || {};
+                        var columns = f.spec ? APSSource.columns(f.spec).map(function (c) { return [c, c]; }) : [];
+                        var fp = p + name + '.';
+
+                        return '<div class="dl-feed">' +
+                            '<div class="dl-label">' + esc(label) + '</div>' +
+                            (f.spec
+                                ? '<div class="dl-source-built"><code>' + esc(APSSource.describe(f.spec)) + '</code>' +
+                                  '<button type="button" class="btn btn-sm" data-act="edit-feed" data-prefix="' + fp.slice(0, -1) + '">Change</button>' +
+                                  '<button type="button" class="btn btn-sm" data-act="clear-feed" data-prefix="' + fp.slice(0, -1) + '">Remove</button></div>' +
+                                  '<div class="dl-grid" style="margin-top:10px">' +
+                                    field('Source', sel(fp + 'sourceColumn', columns, f.sourceColumn, 'None')) +
+                                    field('Date', sel(fp + 'dateColumn', columns, f.dateColumn, 'None')) +
+                                    field('Content', sel(fp + 'contentColumn', columns, f.contentColumn, 'Select column')) +
+                                    field('Order', sel(fp + 'order', [['desc', 'Newest first'], ['asc', 'Oldest first']], f.order || 'desc')) +
+                                  '</div>'
+                                : '<button type="button" class="btn btn-sm" data-act="edit-feed" data-prefix="' + fp.slice(0, -1) + '">' +
+                                  '<i class="fa-solid fa-diagram-project"></i>Choose the source</button>' +
+                                  '<p class="input-help">A JSON column can be named in the builder, and its values then read like columns.</p>') +
+                            '</div>';
+                    }
+
+                    return '<div class="dl-sub">' +
+                        feed('live', 'Live notes') +
+                        feed('summary', 'AI summary') +
+                        '<div class="dl-grid" style="margin-top:14px">' +
+                            field('Opens on', sel(p + 'defaultView', [['live', 'Live notes'], ['summary', 'AI summary']], s.defaultView || 'live')) +
+                            field('Refresh runs', sel(p + 'refreshPipelineId',
+                                  catalog.refreshPipelines.map(function (x) { return [x.id, x.name]; }),
+                                  s.refreshPipelineId || '', 'No refresh button', null, ' data-type="number"'), true) +
+                        '</div>' +
+                        '<p class="input-help">The refresh button calls that pipeline for the open record only.</p>' +
+                        '</div>';
+                }
+
+                function editColumns(s) {
+                    var table = (s.edit || {}).table;
+                    var cols = ((catalog.joinable[table] || {}).columns) || [];
+                    return cols.map(function (c) { return [c.name, c.name]; });
+                }
+
+                function docSettingsHtml(s, p) {
+                        var columns = sourceColumns('PROC', s.procedure).map(function (c) { return [c, c]; });
+                        var total = s.sections.reduce(function (sum, x) { return sum + Number(x.width || 0); }, 0);
+                        var widths = [2, 3, 4, 5, 6, 7, 8].map(function (w) { return [w, w + ' / 12']; });
+
+                        return '<div class="dl-sub">' +
+                            '<div class="dl-grid">' +
+                                field('Document stored procedure',
+                                      select(p + 'procedure', sourceNames('PROC').map(function (n) { return [n, n]; }), s.procedure, 'Select', 'docProc') +
+                                      procError('PROC', s.procedure), true) +
+                            '</div>' +
+                              (s.procedure? '<div class="dl-label">Column mapping (all required)</div><div class="dl-grid">' +
+                              DOC_MAP.map(function (m) { return field(m[1], select(p + 'map.' + m[0], columns, s.map[m[0]], 'Select column')); }).join('') +
+                              '</div>' +
+                              '<div class="dl-label">Optional</div><div class="dl-grid">' +
+                              field('Page number column', select(p + 'map.pageNo', columns, s.map.pageNo, 'None')) +
+                              field('Field order column', select(p + 'map.fieldOrder', columns, s.map.fieldOrder, 'None')) +
+                                                    field('Summary field name', input(p + 'summaryField', s.summaryField || 'Summary', ' maxlength="100"')) +
+                              field('Row key column', select(p + 'map.fieldKey', columns, s.map.fieldKey, 'None, editing off')) +
+                              '</div>' +
+
+                              '<div class="dl-label">Editing</div>' +
+                              '<label class="dl-check"><input type="checkbox" data-bind="' + p + 'edit.enabled" data-type="bool"' +
+                                  ((s.edit || {}).enabled ? ' checked' : '') + ' />' +
+                                  '<span>Let reviewers edit a field value</span></label>' +
+                              ((s.edit || {}).enabled
+                                  ? '<div class="dl-grid" style="margin-top:10px">' +
+                                      field('Table holding the values',
+                                            select(p + 'edit.table', Object.keys(catalog.joinable).sort().map(function (t) { return [t, t]; }),
+                                                   (s.edit || {}).table, 'Select table', 'editTable')) +
+                                      field('Key column',
+                                            select(p + 'edit.keyColumn', editColumns(s), (s.edit || {}).keyColumn, 'Select column')) +
+                                      field('Value column',
+                                            select(p + 'edit.valueColumn', editColumns(s), (s.edit || {}).valueColumn, 'Select column')) +
+                                    '</div>' +
+                                    '<p class="input-help">The key column must match the row key the procedure returns. ' +
+                                    'Every change is written to the audit log.</p>'
+                                  : '')
+                            : '') +
+                            '<div class="dl-label">Sections: order and width</div>' +
+                            s.sections.map(function (section, j) {
+                                return '<div class="dl-row">' +
+                                    '<span class="dl-col-name">' + esc(SECTION_LABELS[section.key]) + '</span>' +
+                                    select(p + 'sections.' + j + '.width', widths, section.width, null, 'refresh', ' data-type="number"') +
+                                    tools(p + 'sections', j, s.sections.length, true) +
+                                    '</div>';
+                            }).join('') +
+                            '<div class="' + (total === 12 ? 'input-help' : 'field-error') + '">Total width: ' + total + ' / 12</div>' +
+                            '</div>';
+                    }
+
+                    // --- rendering ----------------------------------------------------------------------
+                                        function renderEditor() {
+                                var l = layout();
+                                    $('#sharedSource').html(sharedSourceHtml());
+                                    $('#tileList').html(l.tiles.length
+                                    ? l.tiles.map(function (t, i) { return tileHtml(t, i, l.tiles.length); }).join('')
+                                    : emptyNote('No tiles yet.'));
+                                $('#tabList').html(l.tabs.length
+                                    ? l.tabs.map(function (b, i) { return tabHtml(b, i, l.tabs.length); }).join('')
+                                    : emptyNote('No tabs yet. Add at least one tab.'));
+                                renderSections();
+                                renderModeState();
+                            }
+
+                            // Which of the two sections is on screen, and how many items each
+                            // holds. Both are always rendered, so switching costs nothing and
+                            // no unsaved edit is lost by moving between them.
+                            function renderSections() {
+                                $('#detailSections .tab-button').each(function () {
+                                    $(this).toggleClass('active', String($(this).data('section')) === state.section);
+                                });
+
+                                $('#detailEditor > .dl-section').each(function () {
+                                    $(this).prop('hidden', String($(this).data('section')) !== state.section);
+                                });
+
+                                var l = layout();
+                                $('[data-section-count="tiles"]').text(l.tiles.length);
+                                $('[data-section-count="tabs"]').text(l.tabs.length);
+                            }
+
+                    function renderModeState() {
+                        [1, 2].forEach(function (mode) {
+                            var $badge = $('[data-mode-state="' + mode + '"]');
+                            if (state.dirty[mode]) { $badge.attr('class', 'badge badge-warning').text('Unsaved'); }
+                            else if (saved[mode].saved) { $badge.attr('class', 'badge badge-success').text('Saved'); }
+                            else { $badge.attr('class', 'badge badge-neutral').text('Not set up'); }
+                        });
+                    }
+
+                    function tileMock(title, icon, accent, value, sub) {
+                        return '<div class="dl-tile dl-accent-' + esc(accent) + '">' +
+                            '<div class="dl-tile-icon"><i class="fa-solid ' + esc(icon) + '"></i></div>' +
+                            '<div class="dl-tile-text"><div class="dl-tile-label">' + esc(title || 'Untitled') + '</div>' +
+                            '<div class="dl-tile-value">' + esc(value) + '</div>' +
+                            (sub ? '<div class="dl-tile-sub">' + esc(sub) + '</div>' : '') + '</div></div>';
+                    }
+
+                    function ghostRows(n, span) {
+                        var html = '';
+                        for (var i = 0; i < n; i++) { html += '<tr class="pv-ghost"><td colspan="' + span + '">&nbsp;</td></tr>'; }
+                        return html;
+                    }
+
+                    function hint(text) { return '<div class="pv-empty"><i class="fa-solid fa-sliders"></i><span>' + esc(text) + '</span></div>'; }
+
+                           function previewBody(b) {
+                    if (!b) { return hint('Add a tab to see it here.'); }
+
+                    // Fill any property the tab does not have yet with its empty default,
+                    // so a half-updated tab can never break the preview.
+                    var s = $.extend(defaultSettings(b.displayType), b.settings || {});
+                    var columns = s.columns || [];
+                    var cards = s.cards || [];
+                    var questionIds = s.questionIds || [];
+                    var colors = s.colors || [];
+                    var resultSource = s.resultSource || {};
+                    var sections = s.sections || [];
+
+                    if (b.displayType === 'TABLE') {
+                        if (!columns.length) { return hint('Choose the columns this table shows.'); }
+                        return '<div class="pv-table"><table><thead><tr>' +
+                            columns.map(function (c) { return '<th>' + esc(c.header || c.column) + '</th>'; }).join('') +
+                            '</tr></thead><tbody>' + ghostRows(3, columns.length) + '</tbody></table></div>';
+                    }
+
+                    if (b.displayType === 'SUMMARY') {
+                        if (!cards.length) { return hint('Add summary cards.'); }
+                        return '<div class="dl-pv-tiles">' + cards.map(function (c) {
+                            return tileMock(c.title, c.icon, c.accent, c.column ? '{' + columnLabel(s.sourceType, c.column) + '}' : '—', '');
+                        }).join('') + '</div>';
+                    }
+
+                    if (b.displayType === 'CHECKLIST') {
+                        var chosen = catalog.questions.filter(function (q) { return questionIds.indexOf(q.id) >= 0; });
+                        if (!chosen.length) { return hint('Choose checklist questions.'); }
+                        var rules = colors.filter(function (c) { return c.value; });
+                        return '<div class="dl-pv-checklist">' + chosen.map(function (q, k) {
+                                                     var rule = ((s.evidence || {}).spec || resultSource.procedure) && rules.length ? rules[k % rules.length] : null;
+                            return '<div class="dl-pv-check"><span>' + esc(q.text) + '</span>' +
+                                (rule ? '<span class="badge badge-' + esc(rule.color) + '">' + esc(rule.value) + '</span>'
+                                      : '<span class="badge badge-neutral">Not evaluated</span>') + '</div>';
+                        }).join('') + '</div>';
+                    }
+
+                   if (b.displayType === 'NOTES') {
+                        var feeds = [];
+                        if ((s.live || {}).spec) { feeds.push('Live notes'); }
+                        if ((s.summary || {}).spec) { feeds.push('AI summary'); }
+                        if (!feeds.length) { return hint('Choose a source for the live notes or the AI summary.'); }
+
+                        return '<div class="dl-pv-tabs">' + feeds.map(function (f, i) {
+                            return '<button type="button" class="dl-pv-tab' + (i === 0 ? ' active' : '') + '">' + esc(f) + '</button>';
+                        }).join('') + '</div>' +
+                            '<div class="dl-pv-notes">' + [1, 2, 3].map(function () {
+                                return '<div class="dl-pv-note"><div class="dl-pv-note-head">Source · Date</div>' +
+                                       '<div class="dl-pv-note-body">Note content</div></div>';
+                            }).join('') + '</div>';
+                    }
+
+                    if (!sections.length) { return hint('Arrange the document viewer sections.'); }
+
+
+                    return '<div class="dl-doc">' + sections.map(function (section) {
+                        var body;
+                        if (section.key === 'documents') {
+                            body = [1, 2, 3].map(function (n) {
+                                return '<div class="dl-doc-item"><i class="fa-solid fa-file-lines"></i>Document ' + n + '</div>';
+                            }).join('');
+                        } else if (section.key === 'preview') {
+                            body = '<div class="dl-doc-preview"><i class="fa-solid fa-file-pdf"></i><span>PDF, image or TIFF</span></div>';
+                        } else {
+                            body = [1, 2, 3, 4].map(function () {
+                                return '<div class="dl-kv"><span>Field</span><strong>Value</strong></div>';
+                            }).join('');
+                        }
+                        return '<div class="dl-doc-sec dl-span-' + Number(section.width) + '">' +
+                            '<div class="dl-doc-title">' + esc(SECTION_LABELS[section.key]) + '</div>' + body + '</div>';
+                    }).join('') + '</div>';
+                }
+
+                    function renderPreview() {
+                        var l = layout();
+                        var active = Math.max(0, Math.min(state.previewTab, l.tabs.length - 1));
+
+                        var tiles = l.tiles.length
+                            ? '<div class="dl-pv-tiles">' + l.tiles.map(function (t) {
+                                  return tileMock(t.title, t.icon, t.accent,
+                                      t.valueColumn ? '{' + columnLabel(t.sourceType, t.valueColumn) + '}' : '—',
+                                      t.subtitleColumn ? '{' + columnLabel(t.sourceType, t.subtitleColumn) + '}' : '');
+                              }).join('') + '</div>'
+                            : '';
+
+                        var strip = l.tabs.map(function (b, i) {
+                            return '<button type="button" class="dl-pv-tab' + (i === active ? ' active' : '') + '" data-pv-tab="' + i + '">' +
+                                   '<i class="fa-solid ' + esc(b.icon) + '"></i>' + esc(b.label || 'Untitled') + '</button>';
+                        }).join('');
+
+                        $('#detailPreview').html(
+                            tiles +
+                            (strip ? '<div class="dl-pv-tabs">' + strip + '</div>' : '') +
+                            '<div class="dl-pv-body">' + previewBody(l.tabs[active]) + '</div>');
+                    }
+
+                    // --- after-change rules for fields that reshape the form ---------------------------------
+                    var AFTER = {
+                        refresh: function () { },
+                            tileSource: function (tile) {
+                            if (tile.sourceType === 'INFLOW') { tile.sourceName = ''; }
+                            tile.valueColumn = '';
+                            tile.subtitleColumn = '';
+                        },
+                        editTable: function (edit) { edit.keyColumn = ''; edit.valueColumn = ''; },
+                        tabType: function (tab) { tab.settings = defaultSettings(tab.displayType); },
+                        tabSource: function (s) {
+                            if (s.sourceType === 'INFLOW') { s.sourceName = ''; }
+                            if (s.columns) { s.columns = []; }
+                            if (s.cards) { s.cards.forEach(function (c) { c.column = ''; }); }
+                        },
+                        docProc: function (s) {
+                            var columns = sourceColumns('PROC', s.procedure);
+                            DOC_MAP.forEach(function (m) { s.map[m[0]] = guess(columns, m[1]); });
+                        },
+                        checkProc: function (rs) {
+                            var columns = sourceColumns('PROC', rs.procedure);
+                            rs.questionColumn = guess(columns, 'QuestionId');
+                            rs.resultColumn = guess(columns, 'Result');
+                            rs.commentColumn = guess(columns, 'Comment') || guess(columns, 'Evidence');
+                        }
+                    };
+
+                    function markDirty() { state.dirty[state.mode] = true; renderModeState(); }
+
+                    // --- events ---------------------------------------------------------------------------------
+                   $('#detailEditor').on('input change', '[data-bind]', function (e) {
+                    // Fields that reshape the form (display type, source, procedure)
+                    // are handled once, on change, after their settings are reset.
+                    if (e.type === 'input' && $(this).data('after')) { return; }
+
+                    var $el = $(this);
+                        var path = String($el.data('bind'));
+                        var value = $el.val();
+                        if ($el.data('type') === 'number') { value = value === '' ? '' : Number(value); }
+                        if ($el.data('type') === 'bool') { value = $el.is(':checked'); }
+
+                        var parent = getPath(layout(), parentPath(path));
+                        parent[path.split('.').pop()] = value;
+                        markDirty();
+
+                        var after = $el.data('after');
+                        if (after && e.type === 'change') {
+                            AFTER[after](parent);
+                            renderEditor();
+                        } else {
+                            if ($el.closest('.dl-icon-pick').length) {
+                                $el.closest('.dl-icon-pick').find('i').attr('class', 'fa-solid ' + value);
+                            }
+                            if (/^(tiles\.\d+\.title|tabs\.\d+\.label)$/.test(path)) {
+                                $el.closest('.dl-item').find('.dl-item-name').first().text(value || 'Untitled');
+                            }
+                        }
+                        renderPreview();
+                    });
+
+                    $('#detailEditor').on('change', '.dl-question', function () {
+                        var ids = getPath(layout(), String($(this).data('list')));
+                        var id = Number(this.value);
+                        var at = ids.indexOf(id);
+                        if (this.checked && at < 0) { ids.push(id); }
+                        if (!this.checked && at >= 0) { ids.splice(at, 1); }
+                        $(this).closest('.dl-sub').find('.dl-qcount').text(ids.length + ' selected');
+                        markDirty();
+                        renderPreview();
+                    });
+
+                    $('#detailEditor').on('click', '[data-action]', function (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+
+                        var $b = $(this);
+                        var action = $b.data('action');
+
+                         if (action === 'toggle-tab') {
+                                    var t = Number($b.data('i'));
+                                    state.openTab = state.openTab === t ? -1 : t;
+                                    if (state.openTab >= 0) { state.previewTab = state.openTab; }
+                                    renderEditor();
+                                    renderPreview();
+                                    return;
+                         }
+
+                         if (action === 'toggle-tile') {
+                                    var ti = Number($b.data('i'));
+                                    state.openTile = state.openTile === ti ? -1 : ti;
+                                    renderEditor();
+                                    return;
+                         }
+
+                        var listPath = String($b.data('list'));
+                        var list = getPath(layout(), listPath);
+                        var i = Number($b.data('i'));
+
+                  switch (action) {
+                    case 'edit-shared':
+                    case 'use-shared':
+                        APSSource.open({
+                            title: 'Source for all tiles',
+                            spec: layout().sharedSpec,
+                            onSave: function (spec) {
+                                layout().sharedSpec = spec;
+                                layout().tiles.forEach(function (t) { t.spec = null; t.subtitleSpec = null; });
+                                markDirty();
+                                renderEditor();
+                                renderPreview();
+                            }
+                        });
+                        return;
+
+                    case 'build-spec':
+                    case 'edit-spec':
+                        (function (tile) {
+                            APSSource.open({
+                                title: 'Source for ' + (tile.title || 'this tile'),
+                                spec: tile.spec,
+                                onSave: function (spec, columns) {
+                                    tile.spec = spec;
+                                    if (columns.indexOf(tile.valueColumn) < 0) { tile.valueColumn = ''; }
+                                    if (columns.indexOf(tile.subtitleColumn) < 0) { tile.subtitleColumn = ''; }
+                                    markDirty();
+                                    renderEditor();
+                                    renderPreview();
+                                }
+                            });
+                        })(layout().tiles[Number($b.data('tile'))]);
+                        return;
+
+                    case 'clear-spec':
+                        var cleared = layout().tiles[Number($b.data('tile'))];
+                        cleared.spec = null;
+                        cleared.subtitleSpec = null;
+                        cleared.valueColumn = '';
+                        cleared.subtitleColumn = '';
+                        break;
+
+                    case 'build-subtitle-spec':
+                        (function (tile) {
+                            APSSource.open({
+                                title: 'Subtitle source for ' + (tile.title || 'this tile'),
+                                spec: tile.subtitleSpec,
+                                onSave: function (spec, columns) {
+                                    tile.subtitleSpec = spec;
+                                    if (columns.indexOf(tile.subtitleColumn) < 0) { tile.subtitleColumn = ''; }
+                                    markDirty();
+                                    renderEditor();
+                                    renderPreview();
+                                }
+                            });
+                        })(layout().tiles[Number($b.data('tile'))]);
+                        return;
+
+                    case 'clear-subtitle-spec':
+                        var st = layout().tiles[Number($b.data('tile'))];
+                        st.subtitleSpec = null;
+                        st.subtitleColumn = '';
+                        break;
+
+                    case 'edit-evidence':
+                        (function (evidence) {
+                            APSSource.open({
+                                title: 'Evidence collection',
+                                spec: evidence.spec,
+                                onSave: function (spec, columns) {
+                                    evidence.spec = spec;
+                                    ['questionColumn', 'resultColumn', 'justificationColumn'].forEach(function (k) {
+                                        if (columns.indexOf(evidence[k]) < 0) { evidence[k] = ''; }
+                                    });
+                                    if (!evidence.questionColumn && columns.indexOf('QuestionId') >= 0) { evidence.questionColumn = 'QuestionId'; }
+                                    markDirty();
+                                    renderEditor();
+                                    renderPreview();
+                                }
+                            });
+                        })(getPath(layout(), String($b.data('prefix'))));
+                        return;
+
+                    case 'add-evidence-column':
+                        var checklist = getPath(layout(), String($b.data('prefix')).replace(/\.$/, ''));
+                        checklist.evidenceColumns = checklist.evidenceColumns || [];
+                        checklist.evidenceColumns.push({ column: '', header: '' });
+                        break;
+
+                    case 'edit-feed':
+                        (function (feed) {
+                            APSSource.open({
+                                title: 'Notes source',
+                                spec: feed.spec,
+                                onSave: function (spec, columns) {
+                                    feed.spec = spec;
+                                    ['sourceColumn', 'dateColumn', 'contentColumn'].forEach(function (k) {
+                                        if (columns.indexOf(feed[k]) < 0) { feed[k] = ''; }
+                                    });
+                                    markDirty();
+                                    renderEditor();
+                                    renderPreview();
+                                }
+                            });
+                        })(getPath(layout(), String($b.data('prefix'))));
+                        return;
+
+                    case 'clear-feed':
+                        var clearedFeed = getPath(layout(), String($b.data('prefix')));
+                        clearedFeed.spec = null;
+                        clearedFeed.sourceColumn = '';
+                        clearedFeed.dateColumn = '';
+                        clearedFeed.contentColumn = '';
+                        break;
+
+                    case 'build-tab-spec':
+                    case 'edit-tab-spec':
+                        (function (settings) {
+                            APSSource.open({
+                                title: 'Tab data source',
+                                spec: settings.spec,
+                                onSave: function (spec, columns) {
+                                    settings.spec = spec;
+                                    if (settings.columns) {
+                                        settings.columns = settings.columns.filter(function (c) { return columns.indexOf(c.column) >= 0; });
+                                    }
+                                    if (settings.cards) {
+                                        settings.cards.forEach(function (c) { if (columns.indexOf(c.column) < 0) { c.column = ''; } });
+                                    }
+                                    markDirty();
+                                    renderEditor();
+                                    renderPreview();
+                                }
+                            });
+                        })(getPath(layout(), String($b.data('prefix')).replace(/\.$/, '')));
+                        return;
+
+                    case 'clear-tab-spec':
+                        var tabSettings = getPath(layout(), String($b.data('prefix')).replace(/\.$/, ''));
+                        tabSettings.spec = null;
+                        if (tabSettings.columns) { tabSettings.columns = []; }
+                        if (tabSettings.cards) { tabSettings.cards.forEach(function (c) { c.column = ''; }); }
+                        break;
+                        case 'move':
+                        var j = i + Number($b.data('dir'));
+                        if (j < 0 || j >= list.length) { return; }
+                        var moved = list[i]; list[i] = list[j]; list[j] = moved;
+                        if (listPath === 'tabs') {
+                            if (state.openTab === i) { state.openTab = j; } else if (state.openTab === j) { state.openTab = i; }
+                            state.previewTab = state.openTab >= 0 ? state.openTab : state.previewTab;
+                        }
+                        // The open tile follows the row it belongs to, so moving
+                        // one does not silently open a different tile.
+                        if (listPath === 'tiles') {
+                            if (state.openTile === i) { state.openTile = j; }
+                            else if (state.openTile === j) { state.openTile = i; }
+                        }
+                        break;
+                        case 'remove':
+                        list.splice(i, 1);
+                        if (listPath === 'tabs') {
+                            if (state.openTab === i) { state.openTab = -1; } else if (state.openTab > i) { state.openTab--; }
+                            state.previewTab = 0;
+                        }
+                        if (listPath === 'tiles') {
+                            if (state.openTile === i) { state.openTile = -1; }
+                            else if (state.openTile > i) { state.openTile--; }
+                        }
+                        break;
+                            case 'add-item':
+                                list.push($b.data('template') === 'rule'
+                                    ? { value: '', color: 'neutral' }
+                                    : { title: '', icon: 'fa-circle-info', accent: 'navy', column: '', format: 'text' });
+                                break;
+                            case 'add-column':
+                                var column = $b.siblings('.dl-add-select').val();
+                                if (!column) { return; }
+                                list.push({ column: column, header: column });
+                                break;
+                            case 'add-all-columns':
+                                var allSettings = getPath(layout(), parentPath(listPath));
+                                var allColumns = allSettings.spec
+                                    ? APSSource.columns(allSettings.spec)
+                                    : sourceColumns(allSettings.sourceType, allSettings.sourceName);
+                                allColumns.forEach(function (c) {
+                                    if (!list.some(function (x) { return x.column === c; })) { list.push({ column: c, header: c }); }
+                                });
+                                break;
+                            case 'questions-all':
+                                list.length = 0;
+                                catalog.useCaseQuestions.forEach(function (q) { list.push(q.id); });
+                                break;
+                            case 'questions-none':
+                                list.length = 0;
+                                break;
+                            default:
+                                return;
+                        }
+
+                        markDirty();
+                        renderEditor();
+                        renderPreview();
+                    });
+
+                            // All tiles read from one source: turning it on opens the builder.
+                $(document).on('change', '#useShared', function () {
+                    if (!this.checked) {
+                        layout().sharedSpec = null;
+                        markDirty();
+                        renderEditor();
+                        renderPreview();
+                        return;
+                    }
+
+                    APSSource.open({
+                        title: 'Source for all tiles',
+                        spec: null,
+                        onSave: function (spec) {
+                            layout().sharedSpec = spec;
+                            layout().tiles.forEach(function (t) {
+                                t.spec = null;
+                                t.subtitleSpec = null;
+                                t.valueColumn = '';
+                                t.subtitleColumn = '';
+                            });
+                            markDirty();
+                            renderEditor();
+                            renderPreview();
+                        }
+                    });
+
+                    // Cancelling the dialog leaves the box on, so redraw to clear it.
+                    renderEditor();
+                });
+
+                    $('#detailSections').on('click', '.tab-button', function () {
+                            state.section = String($(this).data('section'));
+                            renderSections();
+                        });
+
+                        $('#addTile').on('click', function () {
+                    // New tiles go to the top, next to the button, so nothing has to be scrolled for.
+                    layout().tiles.unshift({
+                        title: 'New tile', icon: 'fa-circle-info', accent: 'navy', sourceType: 'INFLOW',
+                        sourceName: '', valueColumn: '', subtitleColumn: '', valueFormat: 'text'
+                    });
+                    // The new tile opens straight away, as a new tab does.
+                    state.openTile = 0;
+                    markDirty();
+                    renderEditor();
+                    renderPreview();
+
+                    var $row = $('#tileList .dl-item').first().addClass('cfg-new');
+                    $row.find('input').first().trigger('focus').trigger('select');
+                    window.setTimeout(function () { $row.removeClass('cfg-new'); }, 1500);
+                    });
+
+                    $('#addTab').on('click', function () {
+                    // The new tab goes to the top and opens straight away.
+                    layout().tabs.unshift({ label: 'New tab', icon: 'fa-table', displayType: 'TABLE', settings: defaultSettings('TABLE') });
+                    state.openTab = 0;
+                    state.previewTab = 0;
+                    markDirty();
+                    renderEditor();
+                    renderPreview();
+
+                    var $row = $('#tabList .dl-item').first().addClass('cfg-new');
+                    $row.find('input').first().trigger('focus').trigger('select');
+                    window.setTimeout(function () { $row.removeClass('cfg-new'); }, 1500);
+                    });
+
+                    $('.dl-mode').on('click', function () {
+                        state.mode = Number($(this).data('mode'));
+                        state.openTab = 0;
+                        state.previewTab = 0;
+                        $('.dl-mode').removeClass('active');
+                        $(this).addClass('active');
+                        renderEditor();
+                        renderPreview();
+                    });
+
+                    $('#detailPreview').on('click', '[data-pv-tab]', function () {
+                        state.previewTab = Number($(this).data('pv-tab'));
+                        renderPreview();
+                    });
+
+                    $('#saveLayout').on('click', function () {
+                        var l = layout();
+
+                        if (!l.tabs.length) { APS.toast('Add at least one tab.', 'error'); return; }
+
+                        var badWidth = l.tabs.filter(function (b) {
+                            return b.displayType === 'DOCVIEWER' &&
+                                b.settings.sections.reduce(function (sum, x) { return sum + Number(x.width || 0); }, 0) !== 12;
+                        })[0];
+                        if (badWidth) { APS.toast('Tab "' + badWidth.label + '": section widths must add up to 12.', 'error'); return; }
+
+                        var mode = state.mode;
+                                    APS.busy(this, APS.post(saveUrl, {
+                        useCaseId: @useCaseId,
+                        workspaceMode: mode,
+                        tileSourceSpecJson: l.sharedSpec ? JSON.stringify(l.sharedSpec) : '',
+                        tilesJson: JSON.stringify(l.tiles.map(function (t) {
+                            return {
+                                title: t.title, icon: t.icon, accent: t.accent,
+                                sourceType: t.sourceType, sourceName: t.sourceName,
+                                valueColumn: t.valueColumn, subtitleColumn: t.subtitleColumn, valueFormat: t.valueFormat,
+                                specJson: t.spec ? JSON.stringify(t.spec) : null,
+                                subtitleSpecJson: t.subtitleSpec ? JSON.stringify(t.subtitleSpec) : null
+                            };
+                        })),
+                        tabsJson: JSON.stringify(l.tabs.map(function (b) {
+                            var settings = $.extend({}, b.settings);
+                            settings.specJson = b.settings.spec ? JSON.stringify(b.settings.spec) : null;
+                            delete settings.spec;
+                            return { label: b.label, icon: b.icon, displayType: b.displayType, settings: settings };
+                        }))
+                    })).then(function (response) {
+                            if (!response.success) { return; }
+                            APS.toast(response.message, 'success');
+                            state.dirty[mode] = false;
+                            saved[mode].saved = true;
+                            renderModeState();
+                        });
+                    });
+
+                    // Warn before leaving with unsaved changes.
+                    window.addEventListener('beforeunload', function (e) {
+                        if (state.dirty[1] || state.dirty[2]) { e.preventDefault(); e.returnValue = ''; }
+                    });
+
+                    renderEditor();
+                    renderPreview();
+                });
+    </script>
+}

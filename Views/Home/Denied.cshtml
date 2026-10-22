@@ -1,0 +1,38 @@
+@{
+    var notProvisioned = (string)ViewBag.Reason == "NotProvisioned";
+    ViewBag.Title = notProvisioned ? "Account not set up" : "No access";
+}
+<div class="aps-gate">
+    <div class="card">
+        <div class="card-body">
+            <div class="empty-icon">
+                <i class="fa-solid @(notProvisioned ? "fa-user-slash" : "fa-lock")"></i>
+            </div>
+
+            @if (notProvisioned)
+            {
+                <h2 class="card-title">This account is not set up in the portal</h2>
+                <p class="card-subtitle">
+                    Windows signed you in as <code>@ViewBag.WindowsUser</code>, but that
+                    username has no active record in this portal. Ask an Admin or Manager
+                    to add it under User Management, then reload this page.
+                </p>
+            }
+            else
+            {
+                <h2 class="card-title">Your role does not include this screen</h2>
+                <p class="card-subtitle">
+                    You are signed in as <code>@ViewBag.WindowsUser</code> with the
+                    @ViewBag.CurrentRoleName role. Ask an Admin if you need access to this
+                    part of the portal.
+                </p>
+            }
+
+            <div class="form-actions">
+                <a class="btn btn-primary" asp-controller="Inbox" asp-action="Index">
+                    <i class="fa-solid fa-inbox"></i>Go to Inbox
+                </a>
+            </div>
+        </div>
+    </div>
+</div>

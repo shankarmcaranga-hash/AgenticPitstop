@@ -1,0 +1,181 @@
+@{
+    var reports = ViewBag.ReportCatalog as DataTable ?? new DataTable();
+}
+
+<div class="report-config-layout">
+    <div class="card report-catalog-card">
+        <div class="card-header">
+            <div class="card-title-row">
+                <div>
+                    <h2 class="card-title">Report Catalog</h2>
+                    <p class="card-subtitle">Approved reports — no direct SQL.</p>
+                </div>
+                <button class="btn btn-primary btn-sm" id="newReport"><i class="fa-solid fa-plus"></i>Register Report</button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="callout callout-info"><i class="fa-solid fa-lock"></i>This area is normally restricted to <strong>ReportAdmin</strong>.</div>
+            <div id="reportCatalogList">
+                @if (reports.Rows.Count == 0)
+                {
+                    <p class="input-help">No reports have been registered yet.</p>
+                }
+                else
+                {
+                    foreach (DataRow report in reports.Rows)
+                    {
+                        <button type="button" class="report-catalog-item" data-report-id="@ApsMetadata.Cell(report, "reportid")">
+                            <strong>@ApsMetadata.Cell(report, "reportname")</strong>
+                            <small>@ApsMetadata.Cell(report, "reportcode") · @ApsMetadata.Cell(report, "executionmode")</small>
+                        </button>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title-row">
+                <div>
+                    <h2 class="card-title" id="reportMetadataTitle">Report Metadata — </h2>
+                    <p class="card-subtitle">The application stores this configuration in metadata tables.</p>
+                </div>
+                <span class="status-badge warning">SP created separately</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div id="reportConfigMessage"></div>
+            <div class="form-grid">
+                <div class="form-group"><label for="reportName">Report Name</label><input id="reportName" name="reportName" value="" /></div>
+                <div class="form-group"><label for="reportCode">Report Code</label><input id="reportCode" name="reportCode" value="" /></div>
+                <div class="form-group form-span-2"><label for="reportDescription">Description</label><textarea id="reportDescription" name="reportDescription" rows="2"></textarea></div>
+                <div class="form-group"><label for="procedureSchema">Procedure Schema</label><input id="procedureSchema" name="procedureSchema" value="" /></div>
+                <div class="form-group"><label for="procedureName">Procedure Name</label><input id="procedureName" value="" /></div>
+                <div class="form-group"><label for="executionMode">Execution Mode</label><select id="executionMode"><option selected>ClientPaged</option><option>ServerPaged</option></select></div>
+                <div class="form-group"><label for="defaultPageSize">Default Page Size</label><input id="defaultPageSize" type="number" min="1" value="" /></div>
+                <div class="form-group"><label for="maxInteractiveRows">Max Interactive Rows</label><input id="maxInteractiveRows" type="number" min="1" value="" /></div>
+                <div class="form-group"><label for="commandTimeout">Command Timeout (seconds)</label><input id="commandTimeout" type="number" min="1" value="" /></div>
+            </div>
+
+            <div class="section-title-row" style="margin-top:18px">
+                <strong>Parameters</strong>
+                <button type="button" class="btn btn-sm" id="addReportParameter"><i class="fa-solid fa-plus"></i>Add parameter</button>
+            </div>
+            <div class="table-wrap">
+                <table id="reportParameters"><thead><tr><th>Parameter</th><th>Display</th><th>Data type</th><th>Control Type</th><th>Default value</th><th></th></tr></thead><tbody></tbody></table>
+            </div>
+
+            <div class="form-actions" style="margin-top:18px">
+                <button class="btn btn-primary" id="saveReportMetadata"><i class="fa-solid fa-floppy-disk"></i>Save Metadata</button>
+                <button class="btn" id="validateReportConfiguration">Validate Configuration</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script nonce="@Context.ApsNonce()">
+(window.apsReady = window.apsReady || []).push(function ($) {
+   
+    var seed = [
+        /*['@@Region', 'Region', 'nvarchar', 'select', 'ALL N/A'],
+        ['@@Department', 'Department', 'nvarchar', 'select', 'ALL N/A'],
+        ['@@FromDate', 'From Date', 'date', 'date', ''],
+        ['@@ToDate', 'To Date', 'date', 'date', '']*/
+    ];
+
+    function addParameter(values) {
+        values = values || ['', '', 'nvarchar', 'text', ''];
+        $('#reportParameters tbody').append('<tr>' +
+            '<td><input class="parameter-name" value="' + APS.escapeAttr(values[0]) + '" /></td>' +
+            '<td><input class="parameter-display" value="' + APS.escapeAttr(values[1]) + '" /></td>' +
+            '<td><input class="parameter-datatype" value="' + APS.escapeAttr(values[2]) + '" /></td>' +
+            '<td><select class="parameter-control"><option value="text">text</option><option value="select">select</option><option value="date">date</option></select></td>' +
+            '<td><input class="parameter-default" value="' + APS.escapeAttr(values[4]) + '" /></td>' +
+            '<td><button type="button" class="btn btn-sm remove-parameter" aria-label="Remove parameter"><i class="fa-solid fa-trash"></i></button></td></tr>')
+            .find('.parameter-control').val(values[3]);
+    }
+    seed.forEach(addParameter);
+    $('#addReportParameter').on('click', function () { addParameter(); });
+    $(document).on('click', '.remove-parameter', function () { $(this).closest('tr').remove(); });
+    function clearReportConfiguration() {
+        $('#reportMetadataTitle').text('Register New Report');
+        $('#reportName, #reportCode, #reportDescription, #procedureSchema, #procedureName, #defaultPageSize, #maxInteractiveRows, #commandTimeout').val('');
+        $('#executionMode').prop('selectedIndex', 0);
+        $('#reportParameters tbody').empty();
+    }
+
+    function value(row, names) {
+        for (var i = 0; i < names.length; i++) {
+            if (row && row[names[i]] !== undefined && row[names[i]] !== null) return row[names[i]];
+        }
+        return '';
+    }
+
+    function populateReport(configuration) {
+        var definition = configuration.definition || {};
+        $('#reportMetadataTitle').text('Report Metadata — ' + value(definition, ['ReportName', 'name']));
+        $('#reportName').val(value(definition, ['ReportName', 'name']));
+        $('#reportCode').val(value(definition, ['ReportCode', 'code']));
+        $('#reportDescription').val(value(definition, ['Description']));
+        $('#procedureSchema').val(value(definition, ['ProcedureSchema']));
+        $('#procedureName').val(value(definition, ['ProcedureName']));
+        $('#executionMode').val(value(definition, ['ExecutionMode']));
+        $('#defaultPageSize').val(value(definition, ['DefaultPageSize']));
+        $('#maxInteractiveRows').val(value(definition, ['MaxInteractiveRows']));
+        $('#commandTimeout').val(value(definition, ['CommandTimeout']));
+        $('#reportParameters tbody').empty();
+        (configuration.parameters || []).forEach(function (parameter) {
+            addParameter([
+                    value(parameter, ['ParameterName', 'name']),
+                    value(parameter, ['DisplayName', 'display']),
+                    value(parameter, ['DataType', 'datatype']),
+                    value(parameter, ['ControlType', 'control']) || 'text',
+                    value(parameter, ['DefaultValue', 'default'])
+            ]);
+        });
+    }
+
+    $('#newReport').on('click', clearReportConfiguration);
+    $('.report-catalog-item').on('click', function () {
+        var id = $(this).data('report-id');
+        if (!id) {
+            APS.toast('The selected report does not have a valid report ID.', 'error');
+            return;
+        }
+        $.get('@Url.Action("ReportConfiguration", "Configuration")', { reportId: id }).done(function (response) {
+            if (response.success && response.data) {
+                populateReport(response.data);
+            } else {
+                APS.toast(response.message || 'The report configuration could not be loaded.', 'error');
+            }
+        }).fail(function () {
+            APS.toast('The report configuration could not be loaded.', 'error');
+        });
+    });
+    $('#validateReportConfiguration').on('click', function () { APS.toast('Configuration is ready to validate against the registered stored procedure.', 'info'); });
+
+    $('#saveReportMetadata').on('click', function () {
+        var parameters = [];
+        $('#reportParameters tbody tr').each(function () {
+            parameters.push({
+                parametername: $(this).find('.parameter-name').val(),
+                displayname: $(this).find('.parameter-display').val(),
+                datatype: $(this).find('.parameter-datatype').val(),
+                controltype: $(this).find('.parameter-control').val(),
+                defaultvalue: $(this).find('.parameter-default').val()
+            });
+        });
+        var data = {
+            reportname: $('#reportName').val(), reportcode: $('#reportCode').val(),
+            description: $('#reportDescription').val(), procedureschema: $('#procedureSchema').val(),
+            procedurename: $('#procedureName').val(), executionmode: $('#executionMode').val(),
+            defaultpagesize: $('#defaultPageSize').val(), maxinteractiverows: $('#maxInteractiveRows').val(),
+            commandtimeout: $('#commandTimeout').val(), parametersJson: JSON.stringify(parameters)
+        };
+        APS.post('@Url.Action("SaveReportConfiguration", "Configuration")', data).then(function (response) {
+            if (response.success) APS.toast(response.message || 'Metadata saved.', 'success');
+        });
+    });
+});
+</script>

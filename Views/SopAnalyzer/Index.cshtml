@@ -1,0 +1,531 @@
+@using System.Data
+@{
+    ViewBag.Title = "SOP Analyzer";
+
+    var useCases = ViewBag.UseCases as DataTable ?? new DataTable();
+
+    var history = ViewBag.History as DataTable ?? new DataTable();
+    var useCaseId = (int)(ViewBag.UseCaseId ?? 0);
+    var agentName = Convert.ToString(ViewBag.AgentName);
+    var isSample = ViewBag.IsSampleAgent == true;
+
+    ViewData["PageTitle"] = "SOP Analyzer";
+    ViewData["PageSubtitle"] = "Upload a Standard Operating Procedure once and get the automation footprint and the exact human-in-the-loop checkpoints in minutes, instead of reading it for an afternoon.";
+    ViewData["PageBreadcrumb"] = "Design Tools / SOP Analyzer";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/sopanalyzer.css" asp-append-version="true" />
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+@if (isSample)
+{
+    <div class="callout callout-warning" style="margin-bottom:14px">
+        <i class="fa-solid fa-circle-info"></i>
+        The analyzer is running on a <strong>sample blueprint</strong>, not your document.
+        Set <code>SopAnalyzer:Endpoint</code> in configuration to analyze real SOPs with the
+        DICE Comprehender agent.
+    </div>
+}
+
+<div class="cfg-split">
+
+    @* ------------------------------------------------------------------ left *@
+    <div>
+        <div class="card" id="sopUploadCard">
+            <div class="card-header">
+                <div class="card-title-row">
+                    <div>
+                        <h2 class="card-title">Upload SOP</h2>
+                        <p class="card-subtitle">
+                            Word, PDF or Excel. The process narrative, the systems it names and the
+                            order of the steps are what the analyzer reads.
+                        </p>
+                    </div>
+                    <span class="badge badge-neutral">@agentName</span>
+                </div>
+            </div>
+
+            <div class="card-body">
+                @if (useCases.Rows.Count == 0)
+                {
+                    ViewData["EmptyIcon"] = "fa-compass";
+                    ViewData["EmptyHeading"] = "No use cases available";
+                    ViewData["EmptyMessage"] = "A blueprint belongs to a use case. Ask an administrator to grant you one on the Use Case Mapping screen.";
+                    @await Html.PartialAsync("_EmptyState")
+                }
+                else
+                {
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="sopUseCase">Client &ndash; Process</label>
+                            <select id="sopUseCase">
+                                <option value="0">Select a use case</option>
+                                @foreach (DataRow useCase in useCases.Rows)
+                                {
+                                    var id = Convert.ToInt32(useCase["UseCaseID"]);
+                                    <option value="@id" selected="@(id == useCaseId ? "selected" : null)">
+                                        @ApsMetadata.Cell(useCase, "UseCaseName")
+                                    </option>
+                                }
+                            </select>
+                            <span class="input-help">
+                                The blueprint is filed against this use case, beside its other configuration.
+                            </span>
+                        </div>
+
+                        @* Customer and process are not asked for: the use case above
+                           already is one client plus one process, and the server reads
+                           both from it. *@
+
+                        <div class="form-group">
+                            <label for="sopDepth">Analysis depth</label>
+                            <select id="sopDepth">
+                                <option value="Standard">Standard &mdash; steps, systems, HITL</option>
+                                <option value="Deep">Deep &mdash; also field-level extraction candidates</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group full">
+                            <label>Document</label>
+                            <div class="sop-dropzone" id="sopDropzone" tabindex="0" role="button"
+                                 aria-label="Choose an SOP document">
+                                <div class="sop-dropzone-icon"><i class="fa-solid fa-file-arrow-up"></i></div>
+                                <span class="sop-dropzone-title">Click to choose a document, or drop one here</span>
+                                <span class="input-help">.docx, .pdf or .xlsx &mdash; up to 10 MB</span>
+                                <input type="file" id="sopFile" accept=".docx,.pdf,.xlsx" hidden />
+                            </div>
+                            <div class="input-help sop-filename" id="sopFileName">No document chosen yet.</div>
+                            <span class="field-error" data-for="sopFile"></span>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button class="btn btn-primary" id="sopAnalyze">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>Analyze SOP
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* ------------------------------------------------------------ progress *@
+        <div class="card" id="sopProgressCard" hidden>
+            <div class="card-body">
+                <div class="sop-progress">
+                    <div class="sop-spinner" aria-hidden="true"></div>
+                    <strong>Analyzing the document&hellip;</strong>
+                    <ul class="sop-progress-steps" id="sopProgressSteps">
+                        <li>Parsing document structure and narrative steps</li>
+                        <li>Identifying source and target systems</li>
+                        <li>Classifying each step as deterministic or AI-driven</li>
+                        <li>Deciding the human-in-the-loop checkpoints</li>
+                        <li>Scoring overall process complexity</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        @* ------------------------------------------------------------- results *@
+        <div id="sopResults" hidden></div>
+    </div>
+
+    @* ----------------------------------------------------------------- right *@
+    <aside class="cfg-preview">
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title-row">
+                    <div>
+                        <h2 class="card-title">Previous analyses</h2>
+                        <p class="card-subtitle">Select one to open its blueprint again.</p>
+                    </div>
+                    <span class="badge badge-neutral">@history.Rows.Count</span>
+                </div>
+            </div>
+            <div class="card-body">
+                @if (history.Rows.Count == 0)
+                {
+                    ViewData["EmptyIcon"] = "fa-clock-rotate-left";
+                    ViewData["EmptyHeading"] = "Nothing analyzed yet";
+                    ViewData["EmptyMessage"] = "Upload an SOP on the left and its blueprint will be kept here.";
+                    @await Html.PartialAsync("_EmptyState")
+                }
+                else
+                {
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr><th>Document</th><th>Steps</th><th>HITL</th><th>Status</th><th></th></tr>
+                            </thead>
+                            <tbody>
+                            @foreach (DataRow row in history.Rows)
+                            {
+                                var status = ApsMetadata.Cell(row, "Status");
+                                var done = string.Equals(status, "Completed", StringComparison.OrdinalIgnoreCase);
+                                var failed = string.Equals(status, "Failed", StringComparison.OrdinalIgnoreCase);
+                                <tr>
+                                    <td>
+                                        <strong>@ApsMetadata.Cell(row, "DocumentName")</strong><br />
+                                        <span class="input-help">
+                                            @Convert.ToDateTime(row["CreatedDate"]).ToString("dd MMM yyyy · HH:mm")
+                                        </span>
+                                    </td>
+                                    <td>@ApsMetadata.Cell(row, "TotalSteps")</td>
+                                    <td>@ApsMetadata.Cell(row, "HitlRequiredCount")</td>
+                                    <td>
+                                        <span class="badge @(done ? "badge-success" : failed ? "badge-danger" : "badge-warning")">
+                                            @status
+                                        </span>
+                                    </td>
+                                    <td>
+                                        @if (done)
+                                        {
+                                            <button class="btn btn-sm" data-action="open-sop"
+                                                    data-sop="@ApsMetadata.Cell(row, "SopAnalysisID")">Open</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title-row">
+                    <div>
+                        <h2 class="card-title">HITL decision rules</h2>
+                        <p class="card-subtitle">Applied identically to every SOP.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Condition</th><th>Decision</th></tr></thead>
+                        <tbody>
+                            <tr>
+                                <td>Deterministic action through an API with a known contract</td>
+                                <td><span class="badge badge-success">No HITL</span></td>
+                            </tr>
+                            <tr>
+                                <td>Deterministic action through RPA or a fixed script</td>
+                                <td><span class="badge badge-success">No HITL</span></td>
+                            </tr>
+                            <tr>
+                                <td>AI agent extracts data from an unstructured document</td>
+                                <td><span class="badge badge-danger">HITL required</span></td>
+                            </tr>
+                            <tr>
+                                <td>AI agent classifies, scores or recommends before a target is written</td>
+                                <td><span class="badge badge-danger">HITL required</span></td>
+                            </tr>
+                            <tr>
+                                <td>AI output read only as reference, never posted or actioned</td>
+                                <td><span class="badge badge-warning">Reviewer discretion</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <span class="input-help">
+                    A deterministic step stays deterministic even when it posts data an AI produced &mdash;
+                    the judgement happened earlier, and that is where the checkpoint belongs.
+                </span>
+            </div>
+        </div>
+    </aside>
+</div>
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+(window.apsReady = window.apsReady || []).push(function ($) {
+    'use strict';
+
+    var analyzeUrl = '@Url.Action("Analyze", "SopAnalyzer")';
+    var resultUrl  = '@Url.Action("Result", "SopAnalyzer")';
+    var indexUrl   = '@Url.Action("Index", "SopAnalyzer")';
+
+    var chosen = null;
+
+    function esc(value) {
+        return APS.escapeHtml(value === null || value === undefined ? '' : String(value));
+    }
+
+    // ---- use case ----------------------------------------------------------
+    // Changing it reloads the screen, because the history below belongs to it.
+    $('#sopUseCase').on('change', function () {
+        window.location.href = indexUrl + '?useCaseId=' + encodeURIComponent($(this).val());
+    });
+
+    // ---- choosing a document -----------------------------------------------
+    function show(file) {
+        chosen = file || null;
+        $('#sopFileName').text(chosen
+            ? chosen.name + ' · ' + Math.max(1, Math.round(chosen.size / 1024)) + ' KB'
+            : 'No document chosen yet.');
+        $('[data-for="sopFile"]').text('');
+    }
+
+                // The input lives inside the dropzone, so its own click must not bubble back
+            // up and re-enter this handler. The native click is used rather than jQuery's
+            // trigger, because that keeps the browser's user-gesture chain intact - some
+            // browsers refuse to open the picker without it.
+            $('#sopFile').on('click', function (event) { event.stopPropagation(); });
+
+            $('#sopDropzone').on('click', function (event) {
+                if (event.target && event.target.id === 'sopFile') { return; }
+                document.getElementById('sopFile').click();
+            });
+
+            $('#sopDropzone').on('keydown', function (event) {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    document.getElementById('sopFile').click();
+                }
+            });
+
+            $('#sopFile').on('change', function () { show(this.files && this.files[0]); });
+
+    $('#sopDropzone').on('dragover dragenter', function (event) {
+        event.preventDefault();
+        $(this).addClass('is-over');
+    });
+
+    $('#sopDropzone').on('dragleave drop', function () { $(this).removeClass('is-over'); });
+
+    $('#sopDropzone').on('drop', function (event) {
+        event.preventDefault();
+        var files = event.originalEvent.dataTransfer && event.originalEvent.dataTransfer.files;
+        if (files && files.length) { show(files[0]); }
+    });
+
+    // ---- progress ----------------------------------------------------------
+    // Advances while the call is in flight. It reports which stage the analyzer
+    // is on, not a percentage it cannot know.
+    var ticker = null;
+
+    function startProgress() {
+        var items = $('#sopProgressSteps li').removeClass('is-done');
+        var index = 0;
+
+        $('#sopUploadCard').attr('hidden', true);
+        $('#sopResults').attr('hidden', true).empty();
+        $('#sopProgressCard').removeAttr('hidden');
+
+        window.clearInterval(ticker);
+        ticker = window.setInterval(function () {
+            if (index < items.length - 1) { items.eq(index).addClass('is-done'); index++; }
+        }, 900);
+    }
+
+    function stopProgress() {
+        window.clearInterval(ticker);
+        ticker = null;
+        $('#sopProgressSteps li').addClass('is-done');
+        $('#sopProgressCard').attr('hidden', true);
+    }
+
+    function backToUpload() {
+        stopProgress();
+        $('#sopUploadCard').removeAttr('hidden');
+    }
+
+    // ---- analyze -----------------------------------------------------------
+    $('#sopAnalyze').on('click', function () {
+        var useCaseId = Number($('#sopUseCase').val()) || 0;
+
+        if (!useCaseId) { APS.toast('Select a use case first.', 'error'); return; }
+        if (!chosen) {
+            $('[data-for="sopFile"]').text('Choose an SOP document to analyze.');
+            return;
+        }
+
+        var data = new FormData();
+        data.append('file', chosen);
+        data.append('useCaseId', useCaseId);
+        data.append('depth', $('#sopDepth').val());
+
+        startProgress();
+
+        APS.postFile(analyzeUrl, data).then(function (response) {
+            if (!response.success) { backToUpload(); return; }
+
+            stopProgress();
+            render(response.data.result, response.data.isSample, chosen.name);
+            APS.toast(response.message, 'success');
+        });
+    });
+
+    // ---- open a previous blueprint ----------------------------------------
+    $(document).on('click', '[data-action="open-sop"]', function () {
+        var id = $(this).data('sop');
+
+        APS.busy(this, $.ajax({
+            url: resultUrl,
+            type: 'GET',
+            data: { id: id },
+            dataType: 'json',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })).then(function (response) {
+            if (!response || !response.success) {
+                APS.toast(response && response.message ? response.message : 'The blueprint could not be loaded.', 'error');
+                return;
+            }
+            $('#sopUploadCard').attr('hidden', true);
+            render(response.data.result, false, response.data.documentName);
+        });
+    });
+
+    // ---- rendering ---------------------------------------------------------
+    function kpi(value, label) {
+        return '<div class="card kpi-card"><span class="kpi-value">' + esc(value) + '</span>' +
+               '<span class="kpi-label">' + esc(label) + '</span></div>';
+    }
+
+    function chips(names, direction) {
+        if (!names || !names.length) { return '<span class="input-help">None identified.</span>'; }
+
+        var icon = direction === 'Source' ? 'fa-arrow-right-to-bracket' : 'fa-arrow-right-from-bracket';
+        return names.map(function (name) {
+            return '<span class="sop-chip"><i class="fa-solid ' + icon + '"></i>' + esc(name) + '</span>';
+        }).join('');
+    }
+
+    function stepRows(steps) {
+        return steps.map(function (step) {
+            var isAi = String(step.actionType || '').toUpperCase().indexOf('AI') === 0;
+            var hitl = String(step.hitlRequired || 'No');
+
+            var badge = hitl === 'Yes' ? 'badge-danger'
+                      : hitl === 'Optional' ? 'badge-warning'
+                      : 'badge-success';
+
+            var systems = (step.systems || []).map(function (s) {
+                return esc(s.name) + (s.direction ? ' (' + esc(s.direction) + ')' : '');
+            }).join(', ');
+
+            var rowClass = (isAi ? 'sop-row-ai ' : '') + (hitl === 'Yes' ? 'sop-row-hitl' : '');
+
+            return '<tr class="' + rowClass + '">' +
+                '<td>' + esc(step.stepNumber) + '</td>' +
+                '<td>' + esc(step.description) + '</td>' +
+                '<td><span class="badge ' + (isAi ? 'badge-warning' : 'badge-info') + '">' +
+                    esc(step.actionType) + '</span></td>' +
+                '<td>' + systems + '</td>' +
+                '<td>' + esc(step.documentExtraction) + '</td>' +
+                '<td><span class="badge ' + badge + '">' + esc(hitl) + '</span></td>' +
+                '<td class="sop-reason">' + esc(step.reasoning) + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    function render(result, isSample, documentName) {
+        if (!result) { return; }
+
+        var summary = result.summary || {};
+        var systems = result.systems || { source: [], target: [] };
+        var steps = result.steps || [];
+
+        var distinct = {};
+        (systems.source || []).concat(systems.target || []).forEach(function (name) {
+            if (name) { distinct[String(name).toLowerCase()] = true; }
+        });
+        var systemCount = Object.keys(distinct).length;
+
+        var factors = (summary.complexityFactors || []).map(function (f) {
+            return '<li>' + esc(f) + '</li>';
+        }).join('');
+
+        var html =
+        '<div class="card">' +
+          '<div class="card-header"><div class="card-title-row">' +
+            '<div>' +
+              '<h2 class="card-title">' + esc(documentName || result.documentName) +
+                ' <span class="badge ' + (isSample ? 'badge-warning' : 'badge-success') + '">' +
+                (isSample ? 'Sample blueprint' : 'Analysis complete') + '</span></h2>' +
+              '<p class="card-subtitle">' + esc(steps.length) + ' process step(s) identified' +
+                (result.useCase ? ' · ' + esc(result.useCase) : '') + '</p>' +
+            '</div>' +
+            '<button class="btn btn-sm" id="sopAnother">' +
+              '<i class="fa-solid fa-rotate-left"></i>Analyze another</button>' +
+          '</div></div>' +
+        '</div>' +
+
+        '<div class="grid grid-4" style="margin-bottom:16px">' +
+          kpi(summary.totalSteps || steps.length, 'Total process steps') +
+          kpi(summary.hitlRequiredCount || 0, 'HITL checkpoints required') +
+          kpi(summary.documentExtractionInvolved ? 'Yes' : 'No', 'Document extraction involved') +
+          kpi(systemCount, 'Systems identified') +
+        '</div>' +
+
+        '<div class="cfg-split">' +
+          '<div class="card">' +
+            '<div class="card-header"><div class="card-title-row"><div>' +
+              '<h2 class="card-title">Deterministic versus AI-driven</h2>' +
+              '<p class="card-subtitle">What can be automated outright, and what needs a person.</p>' +
+            '</div></div></div>' +
+            '<div class="card-body">' +
+              '<div class="sop-ratio">' +
+                '<div class="sop-donut" style="--sop-det:' +
+                   ((summary.deterministicPercent || 0) * 3.6) + 'deg">' +
+                  '<span class="sop-donut-label">' +
+                    esc(summary.deterministicPercent || 0) + ':' + esc(summary.aiPercent || 0) +
+                    '<small>Det : AI</small></span>' +
+                '</div>' +
+                '<div class="sop-legend">' +
+                  '<p><span class="sop-dot sop-dot-det"></span><strong>' +
+                     esc(summary.deterministicPercent || 0) + '% deterministic</strong> — API calls and ' +
+                     'scripted automation, where the same inputs always give the same result.</p>' +
+                  '<p><span class="sop-dot sop-dot-ai"></span><strong>' +
+                     esc(summary.aiPercent || 0) + '% AI-driven</strong> — extraction, classification or ' +
+                     'recommendation with no fixed code path behind it.</p>' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+
+          '<aside class="cfg-preview"><div class="card">' +
+            '<div class="card-header"><div class="card-title-row"><div>' +
+              '<h2 class="card-title">Process complexity</h2>' +
+              '<p class="card-subtitle">Systems, AI steps, unstructured documents and HITL load.</p>' +
+            '</div><span class="badge badge-info">' + esc(summary.complexityLevel || '—') + '</span>' +
+            '</div></div>' +
+            '<div class="card-body">' +
+              '<span class="input-help">Complexity score ' + esc(summary.complexityScore || 0) + ' of 100</span>' +
+              '<div class="sop-meter"><div class="sop-meter-fill" style="width:' +
+                 Math.min(100, Math.max(0, summary.complexityScore || 0)) + '%"></div></div>' +
+              (factors ? '<ul class="sop-factors">' + factors + '</ul>' : '') +
+              '<div class="sop-sys-label">Source systems</div>' + chips(systems.source, 'Source') +
+              '<div class="sop-sys-label">Target systems</div>' + chips(systems.target, 'Target') +
+            '</div>' +
+          '</div></aside>' +
+        '</div>' +
+
+        '<div class="card">' +
+          '<div class="card-header"><div class="card-title-row"><div>' +
+            '<h2 class="card-title">Step-by-step breakdown</h2>' +
+            '<p class="card-subtitle">Shaded rows are AI-driven; a red edge marks a step that needs a reviewer.</p>' +
+          '</div></div></div>' +
+          '<div class="card-body"><div class="table-wrap"><table class="sop-steps">' +
+            '<thead><tr><th>#</th><th>Step</th><th>Action type</th><th>System(s)</th>' +
+            '<th>Extraction</th><th>HITL</th><th>Reasoning</th></tr></thead>' +
+            '<tbody>' + stepRows(steps) + '</tbody>' +
+          '</table></div></div>' +
+        '</div>';
+
+        $('#sopResults').html(html).removeAttr('hidden');
+        $('html, body').animate({ scrollTop: $('#sopResults').offset().top - 20 }, 200);
+    }
+
+    $(document).on('click', '#sopAnother', function () {
+        $('#sopResults').attr('hidden', true).empty();
+        $('#sopUploadCard').removeAttr('hidden');
+    });
+});
+</script>
+}

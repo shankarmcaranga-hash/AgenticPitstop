@@ -1,0 +1,20 @@
+@*
+    Empty state for a preview section that has nothing configured yet.
+    Pass the message as the partial's model:
+
+        @await Html.PartialAsync("_PreviewEmpty", "No collections have been created yet.")
+
+    It wraps the existing _EmptyState so the wording and icon rules stay in one
+    place rather than being repeated seven times in Preview.cshtml.
+*@
+@model string
+<div class="card">
+    <div class="card-body">
+        @{
+            ViewData["EmptyIcon"] = "fa-eye-slash";
+            ViewData["EmptyHeading"] = "Nothing to preview yet";
+            ViewData["EmptyMessage"] = Model;
+        }
+        @await Html.PartialAsync("_EmptyState")
+    </div>
+</div>

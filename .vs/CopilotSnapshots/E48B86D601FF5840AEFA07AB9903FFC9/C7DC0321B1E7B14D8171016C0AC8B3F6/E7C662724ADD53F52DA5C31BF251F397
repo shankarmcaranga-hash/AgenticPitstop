@@ -1,0 +1,283 @@
+﻿@{
+    ViewBag.Title = "Inflow";
+
+    var config = ViewBag.Config as DataRow;
+    var inflowType = (byte)ViewBag.InflowType;
+    var manual = inflowType == 2;
+    var columns = (DataTable)ViewBag.Columns;
+    var history = (DataTable)ViewBag.History;
+    var configHistory = (DataTable)ViewBag.ConfigHistory;
+    var preview = (DataTable)ViewBag.Preview;
+    var inboxColumns = (List<string>)ViewBag.InboxColumns;
+
+    ViewData["PageTitle"] = "Inflow";
+    ViewData["PageSubtitle"] = manual
+        ? "Upload and validate Excel files that match the configured template."
+        : "Automated API inflow is active. Manual upload stays available as a fallback.";
+    ViewData["PageBreadcrumb"] = "Work / Inflow";
+    ViewData["PageActions"] = $"<a class=\"btn\" href=\"{Url.Action("SampleTemplate", "Inflow")}\">" +
+                          "<i class=\"fa-solid fa-download\"></i>Download sample template</a>";
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+@if (config == null)
+{
+    <div class="card">
+        <div class="card-body">
+            @{
+                ViewData["EmptyIcon"] = "fa-cloud-arrow-down";
+                ViewData["EmptyHeading"] = "Inflow is not configured";
+                ViewData["EmptyMessage"] = "An Admin needs to choose an inflow source in Configuration → Inflow Source before work can enter the portal.";
+            }
+            @await Html.PartialAsync("_EmptyState")
+        </div>
+    </div>
+}
+else
+{
+    if (!manual)
+    {
+        var scheduleText = Convert.ToByte(config["scheduletype"]) == 2
+            ? $"Every {config["everyminutes"]} minutes"
+            : $"Daily at {config["scheduletime"]}";
+        var apiStatus = Convert.ToString(config["apistatus"]);
+
+        <div class="grid grid-4">
+            <div class="card kpi-card">
+                <span class="kpi-label">API status</span>
+                <span class="kpi-value" style="font-size:20px">
+                    @(apiStatus == "healthy" ? "Healthy" : apiStatus == "unhealthy" ? "Unavailable" : "Not tested")
+                </span>
+                <div class="kpi-trend">
+                    <span class="badge @(apiStatus == "healthy" ? "badge-success" : apiStatus == "unhealthy" ? "badge-danger" : "badge-neutral")">
+                        @(apiStatus ?? "unknown")
+                    </span>
+                </div>
+            </div>
+            <div class="card kpi-card">
+                <span class="kpi-label">Schedule</span>
+                <span class="kpi-value" style="font-size:17px">@scheduleText</span>
+                <div class="input-help">Set by Admin</div>
+            </div>
+            <div class="card kpi-card">
+                <span class="kpi-label">Last run</span>
+                <span class="kpi-value" style="font-size:17px">
+                    @(config["lastrundt"] == DBNull.Value
+                        ? "—"
+                        : Convert.ToDateTime(config["lastrundt"]).ToString("dd MMM · HH:mm"))
+                </span>
+                <div class="input-help">From the scheduled agent</div>
+            </div>
+            <div class="card kpi-card">
+                <span class="kpi-label">Records in portal</span>
+                <span class="kpi-value">@preview.Rows.Count</span>
+                <div class="kpi-trend">Across all batches</div>
+            </div>
+        </div>
+    }
+
+    <div class="grid layout-2-1" style="margin-top:16px">
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title-row">
+                    <div>
+                        <h2 class="card-title">@(manual ? "Upload inflow data" : "Automated inflow")</h2>
+                        <p class="card-subtitle">
+                            @if (manual)
+                            {
+                                @:Expected template: @config["templatename"]
+                            }
+                            else
+                            {
+                                @:Configured endpoint and schedule. Upload manually if the API is down.
+                            }
+                        </p>
+                    </div>
+                    <span class="badge badge-info">@(manual ? "Excel only" : "API automated")</span>
+                </div>
+            </div>
+            <div class="card-body">
+                @if (!manual)
+                {
+                    <div class="form-grid" style="margin-bottom:16px">
+                        <div class="form-group full">
+                            <label>Endpoint</label>
+                            <input value="@config["apiendpoint"]" disabled />
+                        </div>
+                    </div>
+                    <div class="callout">
+                        The scheduled agent writes records automatically. The upload below is a
+                        fallback for when the endpoint is unavailable.
+                    </div>
+                }
+
+                <div class="upload-zone" id="uploadZone">
+                    <div>
+                        <div style="font-size:28px"><i class="fa-solid fa-file-arrow-up"></i></div>
+                        <h3>Drop an .xlsx file here</h3>
+                        <p>The header row must match the @columns.Rows.Count configured template columns.</p>
+                        <input type="file" id="inflowFile" accept=".xlsx" style="display:none" />
+                        <button class="btn btn-primary" style="margin-top:12px" id="chooseFileButton">
+                            <i class="fa-solid fa-folder-open"></i>Choose Excel file
+                        </button>
+                    </div>
+                </div>
+
+                <div id="uploadResult" style="margin-top:12px"></div>
+
+                <div style="margin-top:18px">
+                    <div class="section-title-row">
+                        <div>
+                            <strong style="font-size:12px">Expected columns</strong>
+                            <span class="input-help">Taken from the configured template.</span>
+                        </div>
+                        <span class="badge badge-neutral">@columns.Rows.Count columns</span>
+                    </div>
+                    <div class="inline" style="gap:6px; flex-wrap:wrap; margin-top:8px">
+                        @foreach (DataRow column in columns.Rows)
+                        {
+                            <span class="badge badge-neutral">@column["columnname"]</span>
+                        }
+                    </div>
+                </div>
+
+                @if (preview.Rows.Count > 0 && inboxColumns.Count > 0)
+                {
+                    <div style="margin-top:18px">
+                        <div class="section-title-row">
+                            <div><strong style="font-size:12px">Most recent records</strong></div>
+                            <span class="badge badge-success">In Inbox</span>
+                        </div>
+                        <div class="preview-table table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        @foreach (var column in inboxColumns)
+                                        {
+                                            <th>@column</th>
+                                        }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                @foreach (DataRow row in preview.AsEnumerable().Take(3))
+                                {
+                                    <tr>
+                                        @foreach (var column in inboxColumns)
+                                        {
+                                            <td>@ApsMetadata.Cell(row, column)</td>
+                                        }
+                                    </tr>
+                                }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Upload history</h2>
+                <p class="card-subtitle">Recent inflow batches.</p>
+            </div>
+            <div class="card-body">
+                @if (history.Rows.Count == 0)
+                {
+                    <p class="input-help">No batches have been imported yet.</p>
+                }
+                else
+                {
+                    <ul class="timeline">
+                        @foreach (DataRow batch in history.Rows)
+                        {
+                            <li>
+                                <strong>
+                                    @(batch["filename"] == DBNull.Value ? "API batch" : batch["filename"]) ·
+                                    @batch["recordcount"] records
+                                </strong>
+                                <span>
+                                    @batch["status"] · @batch["uploadedby"] ·
+                                    @Convert.ToDateTime(batch["uploadedon"]).ToString("dd MMM yyyy · HH:mm")
+                                </span>
+                            </li>
+                        }
+                    </ul>
+                }
+
+                <div class="section-title-row" style="margin-top:18px">
+                    <div><strong style="font-size:12px">Configuration changes</strong></div>
+                </div>
+                <ul class="timeline">
+                    @foreach (DataRow entry in configHistory.Rows)
+                    {
+                        <li>
+                            <strong>@entry["configitem"]</strong>
+                            <span>
+                                @entry["detail"] · @entry["actionby"] ·
+                                @Convert.ToDateTime(entry["actiondt"]).ToString("dd MMM · HH:mm")
+                            </span>
+                        </li>
+                    }
+                </ul>
+            </div>
+        </div>
+    </div>
+}
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+    (function ($) {
+        'use strict';
+
+        var $zone = $('#uploadZone');
+        var $file = $('#inflowFile');
+
+        $('#chooseFileButton').on('click', function () { $file.trigger('click'); });
+        $file.on('change', function () {
+            if (this.files && this.files.length) { upload(this.files[0]); }
+        });
+
+        // Drag and drop onto the zone
+        $zone.on('dragover', function (event) {
+            event.preventDefault();
+            $zone.addClass('is-dragging');
+        }).on('dragleave drop', function () {
+            $zone.removeClass('is-dragging');
+        }).on('drop', function (event) {
+            event.preventDefault();
+            var files = event.originalEvent.dataTransfer.files;
+            if (files && files.length) { upload(files[0]); }
+        });
+
+        function upload(file) {
+            if (!/\.xlsx$/i.test(file.name)) {
+                APS.toast('Only .xlsx workbooks are supported.', 'error');
+                return;
+            }
+
+            var data = new FormData();
+            data.append('file', file);
+
+            $('#uploadResult').html('<div class="callout">Reading ' + APS.escapeHtml(file.name) + '...</div>');
+
+            APS.postFile('@Url.Action("Upload", "Inflow")', data).then(function (response) {
+                if (!response.success) {
+                    $('#uploadResult').html('<div class="callout callout-danger">' +
+                        APS.escapeHtml(response.message) + '</div>');
+                    return;
+                }
+
+                $('#uploadResult').html('<div class="callout callout-success">' +
+                    APS.escapeHtml(response.message) + '</div>');
+                APS.toast(response.message, 'success');
+
+                window.setTimeout(function () { window.location.reload(); }, 1400);
+            });
+
+            $file.val('');
+        }
+    })(jQuery);
+</script>
+}

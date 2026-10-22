@@ -1,0 +1,9 @@
+@*
+    Empty states are an invitation to act, so each one says what to do next
+    rather than only reporting that nothing is here.
+*@
+<div class="empty-state">
+    <div class="empty-icon"><i class="fa-solid @(ViewData["EmptyIcon"] ?? "fa-inbox")"></i></div>
+    <h3>@(ViewData["EmptyHeading"] ?? "Nothing here yet")</h3>
+    <p>@ViewData["EmptyMessage"]</p>
+</div>

@@ -1,0 +1,217 @@
+@using System.Data
+@{
+    ViewBag.Title = "Inbox";
+
+    var useCases = ViewBag.UseCases as DataTable ?? new DataTable();
+    var selectedUseCaseId = ViewBag.UseCaseId is int v ? v : 0;
+    var kpi = ViewBag.Kpi as DataTable ?? new DataTable();
+    var dataColumns = ViewBag.DataColumns as List<Dictionary<string, string>> ?? new List<Dictionary<string, string>>();
+    var records = ViewBag.Records as List<Dictionary<string, object>> ?? new List<Dictionary<string, object>>();
+    var statusRows = ViewBag.StatusRows as DataTable ?? new DataTable();
+    var statusColumns = ViewBag.StatusColumns as List<string> ?? new List<string>();
+    var statusError = Convert.ToString(ViewBag.StatusError);
+    var search = Convert.ToString(ViewBag.Search) ?? string.Empty;
+    var status = Convert.ToString(ViewBag.Status) ?? "";
+
+    int KpiCount(string statusCode)
+    {
+        foreach (DataRow row in kpi.Rows)
+        {
+            var code = GetValue(row, "ReviewStatusCode");
+            if (string.IsNullOrWhiteSpace(code))
+                code = GetValue(row, "Status");
+
+            if (!string.Equals(code, statusCode, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var countRaw = GetValue(row, "RecordCount");
+            if (int.TryParse(countRaw, out var count))
+                return count;
+        }
+
+        return 0;
+    }
+}
+
+<div class="card">
+    <div class="card-body">
+        <div class="card-title">Inbox</div>
+        <div class="card-subtitle">Review inflow records by use case.</div>
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="useCaseId">Use case</label>
+                <select id="useCaseId" name="useCaseId">
+                    <option value="0">Select a use case</option>
+                    @foreach (DataRow useCase in useCases.Rows)
+                    {
+                        var idText = GetValue(useCase, "UseCaseID");
+                        var code = GetValue(useCase, "UseCaseCode");
+                        var name = GetValue(useCase, "UseCaseName");
+                        var optionText = string.IsNullOrWhiteSpace(code) ? name : $"{code} - {name}";
+                        <option value="@idText" selected="@(idText == selectedUseCaseId.ToString())">@optionText</option>
+                    }
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (selectedUseCaseId == 0)
+{
+    <div class="card">
+        <div class="card-body">
+            <div class="empty-state">Choose a use case to load inbox records.</div>
+        </div>
+    </div>
+}
+else if (dataColumns.Count == 0)
+{
+    <div class="card">
+        <div class="card-body">
+            <div class="empty-state">No data columns are configured for this use case.</div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="form-grid">
+        <div class="card"><div class="card-body"><div class="card-title">Pending Review</div><div>@KpiCount("Pending Review")</div></div></div>
+        <div class="card"><div class="card-body"><div class="card-title">Needs Clarification</div><div>@KpiCount("Needs Clarification")</div></div></div>
+        <div class="card"><div class="card-body"><div class="card-title">Approved</div><div>@KpiCount("Approved")</div></div></div>
+        <div class="card"><div class="card-body"><div class="card-title">Validation Failed</div><div>@KpiCount("Validation Failed")</div></div></div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <form method="get" asp-action="Index" class="toolbar">
+                <input type="hidden" name="useCaseId" value="@selectedUseCaseId" />
+                <input type="text" name="search" value="@search" placeholder="Search configured columns" />
+                <select name="status">
+                    <option value="" selected="@string.IsNullOrWhiteSpace(status)">All statuses</option>
+                    <option value="Pending Review" selected="@(status == "Pending Review")">Pending Review</option>
+                    <option value="Needs Clarification" selected="@(status == "Needs Clarification")">Needs Clarification</option>
+                    <option value="Approved" selected="@(status == "Approved")">Approved</option>
+                    <option value="Validation Failed" selected="@(status == "Validation Failed")">Validation Failed</option>
+                    <option value="Rejected" selected="@(status == "Rejected")">Rejected</option>
+                </select>
+                <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+            </form>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            @foreach (var col in dataColumns)
+                            {
+                                <th>@(col.TryGetValue("DisplayName", out var d) ? d : "")</th>
+                            }
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (records.Count == 0)
+                        {
+                            <tr><td colspan="@(dataColumns.Count + 3)">No records found.</td></tr>
+                        }
+                        else
+                        {
+                            foreach (var row in records)
+                            {
+                                row.TryGetValue("InflowDataID", out var id);
+                                row.TryGetValue("ReviewStatusCode", out var reviewStatus);
+                                var reviewStatusText = Convert.ToString(reviewStatus) ?? "";
+                                <tr>
+                                    <td>@id</td>
+                                    @foreach (var col in dataColumns)
+                                    {
+                                        var key = col.TryGetValue("FieldCode", out var f) ? f : "";
+                                        var val = row.TryGetValue(key, out var value) ? Convert.ToString(value) : "";
+                                        <td>@val</td>
+                                    }
+                                    <td><span class="badge @BadgeFor(reviewStatusText)">@reviewStatusText</span></td>
+                                    <td><a class="btn btn-primary btn-sm" asp-action="Detail" asp-route-id="@id">View</a></td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <div class="card-title">Status Summary</div>
+            @if (!string.IsNullOrWhiteSpace(statusError))
+            {
+                <div class="empty-state">@statusError</div>
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                @foreach (var col in statusColumns)
+                                {
+                                    <th>@col</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (statusRows.Rows.Count == 0)
+                            {
+                                <tr><td colspan="@Math.Max(statusColumns.Count, 1)">No status rows returned.</td></tr>
+                            }
+                            else
+                            {
+                                foreach (DataRow row in statusRows.Rows)
+                                {
+                                    <tr>
+                                        @foreach (var col in statusColumns)
+                                        {
+                                            <td>@Convert.ToString(row[col])</td>
+                                        }
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@functions {
+    private static string GetValue(DataRow row, string name)
+    {
+        var col = row.Table.Columns.Cast<DataColumn>()
+            .FirstOrDefault(c => string.Equals(c.ColumnName, name, StringComparison.OrdinalIgnoreCase));
+        if (col == null || row[col] == DBNull.Value) return string.Empty;
+        return Convert.ToString(row[col]) ?? string.Empty;
+    }
+
+    private static string BadgeFor(string status)
+    {
+        var value = (status ?? string.Empty).ToLowerInvariant();
+        if (value.Contains("approve")) return "badge badge-success";
+        if (value.Contains("clarif") || value.Contains("pending")) return "badge badge-warning";
+        if (value.Contains("reject") || value.Contains("fail")) return "badge badge-danger";
+        return "badge badge-neutral";
+    }
+}
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+    (function ($) {
+        'use strict';
+        $('#useCaseId').on('change', function () {
+            var id = $(this).val() || '0';
+            window.location.href = '@Url.Action("Index", "Inbox")?useCaseId=' + encodeURIComponent(id);
+        });
+    })(jQuery);
+</script>
+}

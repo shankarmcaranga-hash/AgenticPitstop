@@ -1,0 +1,163 @@
+﻿@{
+    ViewBag.Title = "Dynamic Reports";
+    var columns = (DataTable)ViewBag.Columns;
+    var kpi = (DataTable)ViewBag.Kpi;
+    var reportRows = (List<Dictionary<string, object>>)ViewBag.ReportRows;
+    var reportType = (string)ViewBag.ReportType;
+    var dateRange = (string)ViewBag.DateRange;
+    var reportFrom = (string)ViewBag.From;
+    var reportTo = (string)ViewBag.To;
+
+    ViewData["PageTitle"] = "Dynamic reports";
+    ViewData["PageSubtitle"] = "Filter and summarise the configured inflow data.";
+    ViewData["PageBreadcrumb"] = "Operations / Dynamic Reports";
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+<div class="grid layout-2-1" style="margin-top:16px">
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Report builder</h2>
+            <p class="card-subtitle">Results are calculated from the current inflow data.</p>
+        </div>
+        <div class="card-body">
+            <form id="reportForm" method="get" action="@Url.Action("Index", "Reports")">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="reportType">Report type</label>
+                        <select id="reportType" name="reportType">
+                            <option value="throughput" selected="@(reportType == "throughput")">Review throughput</option>
+                            <option value="decision" selected="@(reportType == "decision")">Decision breakdown</option>
+                            <option value="agent" selected="@(reportType == "agent")">Agent performance</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="reportRange">Date range</label>
+                        <select id="reportRange" name="dateRange">
+                            <option value="7" selected="@(dateRange == "7")">Last 7 days</option>
+                            <option value="30" selected="@(dateRange == "30")">Last 30 days</option>
+                            <option value="custom" selected="@(dateRange == "custom")">Custom</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="customDates" style="display:none">
+                        <label for="from">From</label>
+                        <input type="date" id="from" name="from" value="@reportFrom" />
+                    </div>
+                    <div class="form-group" id="customDatesTo" style="display:none">
+                        <label for="to">To</label>
+                        <input type="date" id="to" name="to" value="@reportTo" />
+                    </div>
+                    <div class="form-group full">
+                        <label>Configured fields</label>
+                        <div class="inline" style="gap:6px; flex-wrap:wrap">
+                            @foreach (DataRow column in columns.Rows)
+                            {
+                                <span class="badge badge-neutral">@column["columnname"]</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-primary" type="submit" style="margin-top:16px">
+                    <i class="fa-solid fa-filter"></i>Run report
+                </button>
+            </form>
+            <div id="reportOutput" style="margin-top:16px"></div>
+            <div class="input-help" style="margin-top:8px">
+                Date filtering uses the first date field in the data, such as ReviewedOn or CreatedOn.
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Current record mix</h2>
+            <p class="card-subtitle">Live counts by review status.</p>
+        </div>
+        <div class="card-body">
+            @if (kpi.Rows.Count == 0)
+            {
+                <p class="input-help">No records have been imported yet.</p>
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Status</th><th>Records</th></tr></thead>
+                        <tbody>
+                        @foreach (DataRow row in kpi.Rows)
+                        {
+                            <tr><td>@row["reviewstatus"]</td><td><strong>@row["recordcount"]</strong></td></tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+(function ($) {
+    'use strict';
+    var rows = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(reportRows));
+    var type = $('#reportType').val();
+    var range = $('#reportRange').val();
+
+    function dateField(row) {
+        return Object.keys(row).find(function (key) {
+            return /date|time|on$/i.test(key) && !/ifid/i.test(key);
+        });
+    }
+    function groupValue(row, names) {
+        var key = Object.keys(row).find(function (name) { return names.indexOf(name.toLowerCase()) >= 0; });
+        return key && row[key] != null && row[key] !== '' ? String(row[key]) : 'Unassigned';
+    }
+    function inRange(row) {
+        var key = dateField(row);
+        if (!key) return true;
+        var date = new Date(row[key]);
+        if (isNaN(date.getTime())) return true;
+        if (range === 'custom') {
+            var from = $('#from').val() ? new Date($('#from').val() + 'T00:00:00') : null;
+            var to = $('#to').val() ? new Date($('#to').val() + 'T23:59:59') : null;
+            return (!from || date >= from) && (!to || date <= to);
+        }
+        if (range === '7' || range === '30') {
+            var start = new Date();
+            start.setDate(start.getDate() - Number(range));
+            return date >= start && date <= new Date();
+        }
+        return true;
+    }
+    function render() {
+        var groups = {};
+        rows.filter(inRange).forEach(function (row) {
+            var key = type === 'decision'
+                ? groupValue(row, ['reviewstatus', 'decision'])
+                : type === 'agent'
+                    ? groupValue(row, ['reviewedby', 'assignedto', 'agent'])
+                    : (dateField(row) ? new Date(row[dateField(row)]).toLocaleDateString() : 'All records');
+            groups[key] = (groups[key] || 0) + 1;
+        });
+        var heading = type === 'decision' ? 'Decision' : type === 'agent' ? 'Agent' : 'Date';
+        var html = '<div class="table-wrap"><table><thead><tr><th>' + heading + '</th><th>Records</th></tr></thead><tbody>';
+        Object.keys(groups).sort().forEach(function (key) {
+            html += '<tr><td>' + APS.escapeHtml(key) + '</td><td><strong>' + groups[key] + '</strong></td></tr>';
+        });
+        if (!Object.keys(groups).length) html += '<tr><td colspan="2">No records found for this date range.</td></tr>';
+        $('#reportOutput').html(html + '</tbody></table></div>');
+    }
+    function toggleCustomDates() {
+        var show = $('#reportRange').val() === 'custom';
+        $('#customDates,#customDatesTo').toggle(show);
+    }
+    $('#reportType').on('change', function () { type = this.value; render(); });
+    $('#reportRange').on('change', function () { range = this.value; toggleCustomDates(); render(); });
+    $('#from,#to').on('change', render);
+    toggleCustomDates();
+    render();
+})(jQuery);
+</script>
+}

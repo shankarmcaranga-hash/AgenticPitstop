@@ -1,0 +1,210 @@
+/* =============================================================================
+   SOP Analyzer
+   Scoped to sop- classes so nothing here can reach another screen. Every colour
+   falls back to a literal, so the file works whether or not site.css happens to
+   define a given custom property.
+   ============================================================================= */
+
+/* ---------------------------------------------------------------- upload zone */
+.sop-dropzone {
+    border: 2px dashed var(--border, #d8dee9);
+    border-radius: 12px;
+    padding: 30px 20px;
+    text-align: center;
+    background: var(--panel-2, #f6f8fa);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+}
+
+.sop-dropzone:hover,
+.sop-dropzone.is-over {
+    border-color: var(--accent, #1f6f8b);
+    background: var(--panel, #fff);
+}
+
+.sop-dropzone-icon {
+    font-size: 26px;
+    color: var(--accent, #1f6f8b);
+    margin-bottom: 8px;
+}
+
+.sop-dropzone-title { font-weight: 600; display: block; }
+
+.sop-filename {
+    margin-top: 10px;
+    word-break: break-all;
+}
+
+/* ------------------------------------------------------------------ progress */
+.sop-progress { text-align: center; padding: 34px 16px; }
+
+.sop-spinner {
+    width: 42px;
+    height: 42px;
+    margin: 0 auto 14px;
+    border-radius: 50%;
+    border: 4px solid var(--border, #d8dee9);
+    border-top-color: var(--accent, #1f6f8b);
+    animation: sop-spin .9s linear infinite;
+}
+
+@keyframes sop-spin { to { transform: rotate(360deg); } }
+
+/* Respect a reader who has asked for less motion; the list still advances. */
+@media (prefers-reduced-motion: reduce) {
+    .sop-spinner { animation-duration: 3s; }
+}
+
+.sop-progress-steps {
+    list-style: none;
+    margin: 16px auto 0;
+    padding: 0;
+    max-width: 380px;
+    text-align: left;
+    font-size: 12.5px;
+    color: var(--muted, #5a6b7b);
+}
+
+.sop-progress-steps li { padding: 5px 0 5px 22px; position: relative; }
+
+.sop-progress-steps li::before {
+    content: "\00b7";
+    position: absolute;
+    left: 6px;
+    font-weight: 700;
+}
+
+.sop-progress-steps li.is-done {
+    color: var(--success, #1f8a4c);
+    font-weight: 600;
+}
+
+.sop-progress-steps li.is-done::before { content: "\2713"; }
+
+/* --------------------------------------------------------------------- donut */
+.sop-ratio { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+
+.sop-donut {
+    width: 116px;
+    height: 116px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: conic-gradient(var(--accent, #1f6f8b) 0 var(--sop-det, 216deg),
+                               var(--warning, #d08700) var(--sop-det, 216deg) 360deg);
+}
+
+.sop-donut::after {
+    content: "";
+    position: absolute;
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: var(--panel, #fff);
+}
+
+.sop-donut-label {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    font-weight: 700;
+    font-size: 15px;
+    line-height: 1.2;
+}
+
+.sop-donut-label small {
+    display: block;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--muted, #5a6b7b);
+}
+
+.sop-legend { flex: 1 1 200px; min-width: 0; }
+.sop-legend p { margin: 0 0 8px; }
+
+.sop-dot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    margin-right: 7px;
+}
+
+.sop-dot-det { background: var(--accent, #1f6f8b); }
+.sop-dot-ai  { background: var(--warning, #d08700); }
+
+/* ----------------------------------------------------------- complexity meter */
+.sop-meter {
+    height: 8px;
+    border-radius: 6px;
+    background: var(--border, #d8dee9);
+    overflow: hidden;
+    margin-top: 6px;
+}
+
+.sop-meter-fill {
+    height: 100%;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #1f8a4c, #d08700, #c0392b);
+    transition: width .4s ease;
+}
+
+/* ------------------------------------------------------------- system chips */
+.sop-sys-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted, #5a6b7b);
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    margin: 10px 0 4px;
+}
+
+.sop-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--panel-2, #f6f8fa);
+    border: 1px solid var(--border, #d8dee9);
+    border-radius: 16px;
+    padding: 5px 12px;
+    font-size: 12px;
+    margin: 0 6px 6px 0;
+}
+
+.sop-chip i { color: var(--muted, #5a6b7b); }
+
+/* -------------------------------------------------------------- steps table */
+.sop-steps td { vertical-align: top; }
+
+/* An AI step is tinted and a HITL step carries a left edge, so the two reasons
+   a row matters are told apart at a glance rather than by reading the chips. */
+.sop-row-ai  { background: rgba(31, 111, 139, .05); }
+
+.sop-row-hitl td:first-child {
+    box-shadow: inset 3px 0 0 var(--danger, #c0392b);
+}
+
+.sop-reason {
+    font-size: 11.5px;
+    color: var(--muted, #5a6b7b);
+    max-width: 280px;
+}
+
+.sop-factors {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    font-size: 12px;
+    color: var(--muted, #5a6b7b);
+}
+
+.sop-factors li { padding: 2px 0 2px 16px; position: relative; }
+.sop-factors li::before { content: "\2022"; position: absolute; left: 4px; }
+
+@media (max-width: 900px) {
+    .sop-ratio { gap: 14px; }
+    .sop-reason { max-width: none; }
+}

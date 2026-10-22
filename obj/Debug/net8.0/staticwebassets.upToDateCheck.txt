@@ -1,0 +1,44 @@
+wwwroot\css\apiconfig.css
+wwwroot\css\config-workspace.css
+wwwroot\css\configuration.css
+wwwroot\css\detail.css
+wwwroot\css\inbox.css
+wwwroot\css\inflow-versioning.css
+wwwroot\css\inflow.css
+wwwroot\css\pipeline.css
+wwwroot\css\preview.css
+wwwroot\css\site.css
+wwwroot\css\sopanalyzer.css
+wwwroot\Documents\Archive\useCase-11\20261013\100042-ExcelUploading_06Aug26.xlsx
+wwwroot\Documents\Collections\CAA - Examine\CAA-EXAMINE\_\0ad64a73-d43b-4203-9b5d-30a154e476c1.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\158\06011867-83be-4d7a-88df-e064e25d93dd.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\159\0b79d3f8-e421-4a06-b038-7e1fa05e878a.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\164\1684f160-1df3-44d6-8401-301fd23985a8.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\166\1756f0d6-be3d-4eba-9b1a-685239184be4.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\167\17725eef-9c95-4eed-8509-97a9cb64f930.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\168\1ca4c92a-3b36-47f2-a0eb-d590bf0158cc.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\170\238163b8-eb47-4957-9416-00486fb91856.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\174\345a35c4-c9e7-4d13-a9dd-6952c151d0e6.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\177\399dd5e2-0c06-44c4-913e-b30cb92c07c3.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\178\3a7f9652-80af-445b-931b-de047b2b1bee.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\188\75989ba8-fc3b-4588-9bed-2a1742cfd03e.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\190\88e1b2db-2634-499b-be5f-83b50a466c90.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\191\8bf1fc01-8009-432c-bfa0-1260e3d69d84.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\192\93a101bb-e94a-4ab8-9f48-e819f90b17de.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\193\9808a546-0363-4ad9-be0f-0494e79d696c.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\197\ac2556be-3281-4148-8dea-7d67063c94d0.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\199\b2bbf492-cc9e-4269-8106-add882f25f10.PDF
+wwwroot\Documents\Collections\CWA - Examine\CWA-EXAMINE\200\b3ddf00e-5141-4f5f-b9c1-c70e1a15de8b.PDF
+wwwroot\js\apiconfig.js
+wwwroot\js\aps.core.js
+wwwroot\js\doc-viewer.js
+wwwroot\js\pipeline.js
+wwwroot\js\source-builder.js
+wwwroot\lib\fontawesome\css\fontawesome.min.css
+wwwroot\lib\fontawesome\css\solid.min.css
+wwwroot\lib\fontawesome\webfonts\fa-solid-900.ttf
+wwwroot\lib\fontawesome\webfonts\fa-solid-900.woff2
+wwwroot\lib\jquery\jquery.min.js
+wwwroot\lib\pdfjs\pdf.min.js
+wwwroot\lib\pdfjs\pdf.worker.min.js
+wwwroot\lib\tiffjs\tiff.min.js

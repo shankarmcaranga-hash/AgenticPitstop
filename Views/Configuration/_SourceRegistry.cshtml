@@ -1,0 +1,169 @@
+@{
+    var sources = ViewBag.SourceRegistry as DataTable ?? new DataTable();
+    var categories = ViewBag.ManageCategories as DataTable ?? new DataTable();
+    var checklistQuestions = ViewBag.ChecklistSourceUsage as DataTable ?? new DataTable();
+    int UsedBy(string sourceCode) => checklistQuestions.Rows.Cast<DataRow>().Count(question =>
+    {
+        var value = ApsMetadata.Cell(question, "sourceapplicability");
+        if (string.IsNullOrWhiteSpace(value)) value = ApsMetadata.Cell(question, "sourceapplicability");
+        if (string.IsNullOrWhiteSpace(value)) value = ApsMetadata.Cell(question, "sources");
+        return value.IndexOf(sourceCode, StringComparison.OrdinalIgnoreCase) >= 0;
+    });
+}
+<div class="card source-registry-screen">
+    <style>
+        .source-registry-screen .toolbar { align-items: center; display: grid; gap: 16px; grid-template-columns: minmax(300px, 1fr) 298px 185px; margin: 14px 0; }
+        .source-registry-screen .toolbar input, .source-registry-screen .toolbar select { font-size: 18px; min-height: 64px; min-width: 0; padding: 12px 16px; }
+        @@media (max-width: 760px) { .source-registry-screen .toolbar { grid-template-columns: 1fr; } }
+    </style>
+    <div class="card-header"><div class="card-title-row"><div><h2 class="card-title screen-title">Source Registry</h2><p class="card-subtitle">Define the systems, repositories, agents, files, and user inputs that can supply evidence to checklist questions.</p></div><div class="page-actions"><button class="btn" type="button" id="exportSourceConfig">Export Config</button><button class="btn" type="button" id="importSourceConfig">Import Config</button><input id="sourceConfigFile" type="file" accept="application/json,.json" hidden /><button class="btn btn-primary" id="addSource"><i class="fa-solid fa-plus"></i>Add Source</button></div></div></div>
+    <div class="card-body">
+        <div class="report-info source-stats"><div><span>Total sources</span><strong>@sources.Rows.Count</strong><small>Reusable across checklist masters</small></div><div><span>Active sources</span><strong>@(sources.Rows.Cast<DataRow>().Count(r => Convert.ToBoolean(r["status"])))</strong><small>Available for question applicability</small></div><div><span>Used by checklist</span><strong>@(checklistQuestions.Rows.Cast<DataRow>().Count(r => UsedBy(ApsMetadata.Cell(r, "sourcecode")) > 0))</strong><small>Referenced by one or more questions</small></div></div>
+        <div class="section-title-row" style="margin-top:22px"><div><h3 class="card-title">Registered Sources</h3><p class="card-subtitle">Examples: Core application API, document repository, vision agent, database, uploaded file, manual input.</p></div></div>
+        <div class="toolbar"><input id="sourceSearch" type="search" placeholder="Search source name, code, type..." /><select id="sourceType"><option value="">All types</option></select><select id="sourceStatus"><option value="">All statuses</option><option value="1">Active</option><option value="0">Inactive</option></select></div>
+        <div class="table-wrap">
+            <table id="sourceTable">
+                <thead><tr><th>Source</th><th>Type</th><th>Access / Interface</th><th>Owner</th><th>Status</th><th>Used by</th><th>Actions</th></tr></thead>
+                <tbody>
+                    @foreach (DataRow source in sources.Rows)
+                    {
+                        <tr data-source-id="@ApsMetadata.Cell(source, "sourceid")" data-search="@ApsMetadata.Cell(source, "sourcename") @ApsMetadata.Cell(source, "sourcecode") @ApsMetadata.Cell(source, "sourcetype")" data-type="@ApsMetadata.Cell(source, "sourcetype")" data-status="@ApsMetadata.Cell(source, "status")"><td><strong>@ApsMetadata.Cell(source, "sourcename")</strong><small>@ApsMetadata.Cell(source, "sourcecode")</small></td><td>@ApsMetadata.Cell(source, "sourcetype")</td><td>@ApsMetadata.Cell(source, "accessinterface")</td><td>@ApsMetadata.Cell(source, "owner")</td><td><span class="badge @(Convert.ToBoolean(source["status"]) ? "badge-success" : "badge-danger")">@(Convert.ToBoolean(source["status"]) ? "Active" : "Inactive")</span></td><td>@UsedBy(ApsMetadata.Cell(source, "sourcecode")) questions</td><td><button type="button" class="btn btn-sm edit-source">Edit</button><button type="button" class="btn btn-sm btn-danger delete-source">Delete</button></td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<div id="sourceModal" class="modal" hidden>
+    <div class="modal-card">
+        <div class="card-header">
+            <div class="card-title-row">
+                <h2 class="card-title">Add Source</h2>
+                <button type="button" class="btn btn-sm close-source">×</button>
+            </div>
+        </div>
+        <div class="card-body">
+            <input id="sourceId" type="hidden" />
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Source Name</label>
+                    <input id="sourceName" />
+                </div>
+                <div class="form-group">
+                    <label>Source Code</label>
+                    <input id="sourceCode" />
+                </div>
+                <div class="form-group">
+                    <label for="sourceTypeValue">Source Type</label>
+                    <select id="sourceTypeValue" class="form-control">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Access / Interface</label>
+                    <input id="sourceAccess" />
+                </div>
+                <div class="form-group">
+                    <label>Owner / Team</label>
+                    <input id="sourceOwner" />
+                </div>
+                <div class="form-group">
+                    <label for="sourcesStatus">Status</label>
+                    <select id="sourcesStatus" class="form-control">
+                        <option value="Active">Active</option>
+                        <option value="Inactive">Inactive</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="sourceDataClassification">Data Classification</label>
+                    <select id="sourceDataClassification" class="form-control">
+                        <option value="1">Internal</option>
+                        <option value="2">Confidential</option>
+                        <option value="3">Restricted / Sensitive</option>
+                        <option value="4">Public</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Authentication / Connection</label>
+                    <input id="sourceAuthentication"></input>
+                </div>
+                <div class="form-group full">
+                    <label>Description</label>
+                    <textarea id="sourceDescription"></textarea>
+                </div>
+                <div class="form-group full">
+                    <label>Developer Notes / Configuration</label>
+                    <textarea id="sourcedeveloperNotes"></textarea>
+                </div>
+            </div><div class="form-actions"><button class="btn" type="button" id="cancelSource">Cancel</button><button class="btn btn-primary" type="button" id="saveSource">Save Source</button></div>
+        </div>
+    </div>
+</div>
+<script nonce="@Context.ApsNonce()">(window.apsReady = window.apsReady || []).push(function ($) {
+    function value(row, names) {
+        for (var i = 0; i < names.length; i++) {
+            var key = Object.keys(row || {}).filter(function (candidate) { return candidate.toLowerCase() === names[i].toLowerCase(); })[0];
+            if (key && row[key] !== null) return row[key];
+        }
+        return '';
+    }
+    function open(values) {
+        $('#sourceModal').removeAttr('hidden');
+        $('.modal-card .card-title').text(values ? 'Edit Source' : 'Add Source');
+        $('#sourceId').val(values ? value(values, ['sourceid', 'id']) : 0);
+        $('#sourceName').val(values ? value(values, ['sourcename', 'name']) : '');
+        $('#sourceCode').val(values ? value(values, ['sourcecode', 'code']) : '');
+        $('#sourceTypeValue').val(values ? value(values, ['sourcetype', 'type']) : '');
+        $('#sourceAccess').val(values ? value(values, ['accessinterface', 'access']) : '');
+        $('#sourceOwner').val(values ? value(values, ['owner', 'ownerteam']) : '');
+        $('#sourceEndpoint').val(values ? value(values, ['endpoint', 'url']) : '');
+        $('#sourceDataClassification').val(values ? value(values, ['dataclassification']) : '1');
+        $('#sourceAuthentication').val(values ? value(values, ['authenticationconnection', 'authentication']) : '');
+        $('#sourceDescription').val(values ? value(values, ['description']) : '');
+        $('#sourcedeveloperNotes').val(values ? value(values, ['developernotesconfiguration', 'sourcedevelopernotes']) : '');
+        $('#sourcesStatus').val(String(value(values, ['status', 'activestatus'])).toLowerCase() === 'false' || value(values, ['status', 'activestatus']) == 0 ? 'False' : 'True');
+        $('#sourceName').trigger('focus');
+    }
+    function close() { $('#sourceModal').attr('hidden', 'hidden'); }
+    $('#addSource').on('click', function () { open(); });
+    $('.edit-source').on('click', function () {
+        var id = $(this).closest('tr').data('source-id');
+        $.get('@Url.Action("SourceRegistry", "Configuration")', { sourceid: id }).done(function (response) {
+            if (response.success) open(response.data);
+            else APS.toast(response.message || 'Source could not be loaded.', 'error');
+        }).fail(function () { APS.toast('Source could not be loaded.', 'error'); });
+    });
+    $('#cancelSource,.close-source').on('click', close);
+    // load source types from server and populate both the filter and modal selects
+    $.get('@Url.Action("SourceTypes", "Configuration")').done(function (response) {
+        if (!response || !response.success) return;
+        var $filter = $('#sourceType');
+        var $modal = $('#sourceTypeValue');
+        // ensure base option for filter
+        $filter.find('option').not('[value=""]').remove();
+        $modal.empty();
+        $modal.append('<option value="">-- Choose source type --</option>');
+        (response.data || []).forEach(function (item) {
+            // attempt to find a sensible value and text
+            var val = value(item, ['sourcetype', 'type', 'id', 'value']) || '';
+            var text = value(item, ['sourcetypename', 'name', 'displayname', 'text']) || val;
+            if (!val && text) val = text;
+            if (!val) return;
+            $filter.append('<option value="' + APS.escapeAttr(text) + '">' + APS.escapeHtml(text) + '</option>');
+            $modal.append('<option value="' + APS.escapeAttr(text) + '">' + APS.escapeHtml(text) + '</option>');
+        });
+    });
+    $('#saveSource').on('click', function () { APS.post('@Url.Action("SaveSourceRegistry", "Configuration")', { sourceid: $('#sourceId').val(), sourcename: $('#sourceName').val(), sourcecode: $('#sourceCode').val(), sourcetype: $('#sourceTypeValue').val(), accessinterface: $('#sourceAccess').val(), owner: $('#sourceOwner').val(),dataclassification: $('#sourceDataClassification').val(), authenticationconnection: $('#sourceAuthentication').val(), description: $('#sourceDescription').val(), sourcedeveloperNotes: $('#sourcedeveloperNotes').val()  }).then(function (r) { if (r.success) window.location.reload(); }); }); $('.delete-source').on('click', function () { if (!confirm('Deactivate this source?')) return; APS.post('@Url.Action("DeleteSourceRegistry", "Configuration")', { sourceid: $(this).closest('tr').data('source-id') }).then(function (r) { if (r.success) window.location.reload(); }); }); $('#sourceSearch,#sourceType,#sourceStatus').on('input change', function () { var q = $('#sourceSearch').val().toLowerCase(), type = $('#sourceType').val(), status = $('#sourceStatus').val(); $('#sourceTable tbody tr').each(function () { $(this).toggle((!q || $(this).data('search').toLowerCase().indexOf(q) >= 0) && (!type || $(this).data('type') == type) && (!status || String($(this).data('status')) == status)); }); }); 
+    $('#exportSourceConfig').on('click', function () {
+        var config = {
+            version: 1,
+            exportedAt: new Date().toISOString(),
+            sources: $('#sourceTable tbody tr').map(function () { var $row = $(this); return { sourceid: $row.data('source-id'), sourcename: $row.find('td').eq(0).find('strong').text().trim(), sourcecode: $row.find('td').eq(0).find('small').text().trim(), sourcetype: $row.find('td').eq(1).text().trim(), accessinterface: $row.find('td').eq(2).text().trim(), owner: $row.find('td').eq(3).text().trim(), status: $row.data('status') === true || String($row.data('status')).toLowerCase() === 'true' ? 'true' : 'false' }; }).get(),
+            categories: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(ApsMetadata.ToList(categories))),
+            questions: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(ApsMetadata.ToList(checklistQuestions)))
+        };
+        var link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })); link.download = 'source-configuration.json'; link.click(); URL.revokeObjectURL(link.href);
+    });
+    $('#importSourceConfig').on('click', function () { $('#sourceConfigFile').trigger('click'); });
+    $('#sourceConfigFile').on('change', function () { var file = this.files[0]; if (!file) return; var reader = new FileReader(); reader.onload = function () { try { var config = JSON.parse(reader.result); if (!Array.isArray(config.sources)) throw new Error('The file does not contain source configuration.'); APS.post('@Url.Action("ImportSourceConfiguration", "Configuration")', { configurationJson: JSON.stringify(config) }).then(function (response) { if (response.success) window.location.reload(); }); } catch (error) { APS.toast(error.message || 'The configuration file is invalid.', 'error'); } }; reader.readAsText(file); this.value = ''; });
+});</script>

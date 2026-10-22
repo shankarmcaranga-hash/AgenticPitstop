@@ -1,0 +1,494 @@
+@using System.Data
+@using System.Globalization
+@{
+    ViewBag.Title = "Inflow";
+
+    var useCases = ViewBag.UseCases as DataTable ?? new DataTable();
+    var selectedUseCaseId = ViewBag.UseCaseId is int value ? value : 0;
+    var config = ViewBag.Config as DataRow;
+    var templateColumns = ViewBag.TemplateColumns as DataTable ?? new DataTable();
+    var history = ViewBag.History as DataTable ?? new DataTable();
+    var hasTemplate = config != null && templateColumns.Rows.Count > 0;
+    var versionNo = config == null ? "" : GetValue(config, "VersionNo");
+    var requiredCount = templateColumns.AsEnumerable().Count(r => IsTrue(r, "IsRequired"));
+}
+
+<link rel="stylesheet" href="~/css/inflow.css" asp-append-version="true" />
+
+<div class="card if-header">
+    <div class="if-header-main">
+        <div class="if-title">
+            <span class="if-title-icon"><i class="fa-solid fa-cloud-arrow-up"></i></span>
+            <div>
+                <h1>Inflow</h1>
+                <p>Upload an Excel workbook, review every row, then import it for review.</p>
+            </div>
+        </div>
+        <div class="if-header-side">
+            <div class="if-usecase">
+                <label for="useCaseId">Use case</label>
+                <select id="useCaseId">
+                    <option value="0">Select a use case</option>
+                    @foreach (DataRow useCase in useCases.Rows)
+                    {
+                        var idText = GetValue(useCase, "UseCaseID");
+                        var name = GetValue(useCase, "UseCaseName");
+                        <option value="@idText" selected="@(idText == selectedUseCaseId.ToString())">@name</option>
+                    }
+                </select>
+            </div>
+            @if (selectedUseCaseId > 0)
+            {
+                <div class="if-usecase">
+                    <label>Active template</label>
+                    @if (hasTemplate)
+                    {
+                        <span class="badge badge-info if-pill"><i class="fa-solid fa-layer-group"></i>Version @versionNo</span>
+                    }
+                    else
+                    {
+                        <span class="badge badge-warning if-pill"><i class="fa-solid fa-triangle-exclamation"></i>Not configured</span>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (hasTemplate)
+    {
+        <ol class="if-steps" aria-label="Upload progress">
+            <li class="if-step is-active" data-step="1">
+                <span class="if-step-dot">1</span>
+                <span><strong>Choose file</strong><small>Drop or browse an .xlsx workbook</small></span>
+            </li>
+            <li class="if-step" data-step="2">
+                <span class="if-step-dot">2</span>
+                <span><strong>Review rows</strong><small>Check every row before importing</small></span>
+            </li>
+            <li class="if-step" data-step="3">
+                <span class="if-step-dot">3</span>
+                <span><strong>Import</strong><small>Rows move to the Inbox for review</small></span>
+            </li>
+        </ol>
+    }
+</div>
+
+@if (selectedUseCaseId == 0)
+{
+    <div class="card if-empty">
+        <i class="fa-solid fa-list-check"></i>
+        <strong>Choose a use case to start</strong>
+        <span>The use case decides which Excel template your file is checked against.</span>
+    </div>
+}
+else if (!hasTemplate)
+{
+    <div class="card if-empty">
+        <i class="fa-solid fa-file-circle-exclamation"></i>
+        <strong>No active template</strong>
+        <span>An administrator must set up the Excel template for this use case in Configuration before files can be uploaded.</span>
+    </div>
+}
+else
+{
+    <div class="if-layout">
+        <div class="if-main">
+            <section class="card if-card">
+                <input id="fileInput" type="file" accept=".xlsx" hidden />
+                <div id="ifDrop" class="if-drop" role="button" tabindex="0" aria-label="Upload an Excel file">
+                    <div class="if-drop-icon"><i class="fa-solid fa-file-excel"></i></div>
+                    <strong>Drag and drop your Excel file here</strong>
+                    <span>or <button type="button" class="if-link" id="chooseFile">browse your computer</button></span>
+                    <div class="if-drop-rules">
+                        <span><i class="fa-solid fa-check"></i>.xlsx only</span>
+                        <span><i class="fa-solid fa-check"></i>Up to 10 MB</span>
+                        <span><i class="fa-solid fa-check"></i>Up to 10,000 rows</span>
+                    </div>
+                    <div class="if-drop-busy"><i class="fa-solid fa-spinner fa-spin"></i>Reading and validating…</div>
+                </div>
+                <div id="ifFile" class="if-file" hidden></div>
+            </section>
+
+            <section class="card if-card" id="ifReview" hidden>
+                <div class="if-review-head">
+                    <div>
+                        <h2>Review rows</h2>
+                        <p id="ifReviewFile"></p>
+                    </div>
+                    <div class="if-review-actions">
+                        <button type="button" class="btn" id="ifDiscard"><i class="fa-solid fa-xmark"></i>Discard</button>
+                        <button type="button" class="btn btn-primary" id="ifImport"><i class="fa-solid fa-file-import"></i>Import</button>
+                    </div>
+                </div>
+                <div class="if-stats" id="ifStats"></div>
+                <div class="if-notes" id="ifNotes"></div>
+                <div class="if-filter" id="ifFilter"></div>
+                <div class="if-grid">
+                    <table>
+                        <thead id="ifHead"></thead>
+                        <tbody id="ifBody"></tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <aside class="card if-card if-side">
+            <div class="if-side-head">
+                <h2>Template</h2>
+                <span class="badge badge-info">Version @versionNo</span>
+            </div>
+            <div class="if-side-stats">
+                <div><strong>@templateColumns.Rows.Count</strong><span>columns</span></div>
+                <div><strong>@requiredCount</strong><span>required</span></div>
+            </div>
+            <p class="if-hint">
+                Row 1 must contain these headers. Order and letter case do not matter; extra columns are ignored.
+            </p>
+            <ul class="if-columns">
+                @foreach (DataRow row in templateColumns.Rows)
+                {
+                    <li>
+                        <span>@GetValue(row, "ExcelColumnName")</span>
+                        @if (IsTrue(row, "IsRequired"))
+                        {
+                            <span class="if-req">Required</span>
+                        }
+                    </li>
+                }
+            </ul>
+        </aside>
+    </div>
+}
+
+@if (selectedUseCaseId > 0)
+{
+    <section class="card if-card if-history">
+        <div class="if-review-head">
+            <div>
+                <h2>Upload history</h2>
+                <p>The latest 20 uploads for this use case.</p>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Batch</th>
+                        <th>File</th>
+                        <th>Rows</th>
+                        <th>Result</th>
+                        <th>Uploaded by</th>
+                        <th>Uploaded on</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (history.Rows.Count == 0)
+                    {
+                        <tr><td colspan="7" class="if-muted">No uploads yet.</td></tr>
+                    }
+                    else
+                    {
+                        foreach (DataRow row in history.Rows)
+                        {
+                            var invalidCount = ToInt(row, "InvalidRowCount");
+                            var inflowId = GetValue(row, "InflowID");
+                            <tr>
+                                <td><strong>#@inflowId</strong></td>
+                                <td>
+                                    <span class="if-file-cell">
+                                        <i class="fa-solid fa-file-excel"></i>@GetValue(row, "OriginalFileName")
+                                    </span>
+                                </td>
+                                <td>@GetValue(row, "TotalRowCount")</td>
+                                <td>
+                                    @if (invalidCount > 0)
+                                    {
+                                        <span class="badge badge-warning">@invalidCount invalid</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge badge-success">All valid</span>
+                                    }
+                                </td>
+                                <td>@GetValue(row, "UploadedBy")</td>
+                                <td>@FormatDate(GetValue(row, "UploadedOn"))</td>
+                                <td class="if-right">
+                                    @if (invalidCount > 0)
+                                    {
+                                        <button type="button" class="btn btn-sm" data-errors="@inflowId">
+                                            <i class="fa-solid fa-circle-exclamation"></i>View errors
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+
+@functions {
+    private static string GetValue(DataRow row, string column)
+    {
+        var col = row.Table.Columns.Cast<DataColumn>()
+            .FirstOrDefault(c => string.Equals(c.ColumnName, column, StringComparison.OrdinalIgnoreCase));
+        if (col == null || row[col] == DBNull.Value) return string.Empty;
+        return Convert.ToString(row[col]) ?? string.Empty;
+    }
+
+    private static bool IsTrue(DataRow row, string column)
+    {
+        var col = row.Table.Columns.Cast<DataColumn>()
+            .FirstOrDefault(c => string.Equals(c.ColumnName, column, StringComparison.OrdinalIgnoreCase));
+        return col != null && row[col] != DBNull.Value && Convert.ToBoolean(row[col]);
+    }
+
+    private static int ToInt(DataRow row, string column) =>
+        int.TryParse(GetValue(row, column), out var value) ? value : 0;
+
+    private static string FormatDate(string text) =>
+        DateTime.TryParse(text, out var date) ? date.ToString("dd MMM yyyy, HH:mm", CultureInfo.InvariantCulture) : text;
+}
+
+@section Scripts {
+    <script nonce="@Context.ApsNonce()">
+        (function ($) {
+            'use strict';
+
+            var MAX_BYTES = 10 * 1024 * 1024;
+            var urls = {
+                index: '@Url.Action("Index", "Inflow")',
+                preview: '@Url.Action("PreviewUpload", "Inflow")',
+                upload: '@Url.Action("Upload", "Inflow")',
+                batch: '@Url.Action("BatchDetail", "Inflow")'
+            };
+            var useCaseId = '@selectedUseCaseId';
+
+            var pendingFile = null;
+            var stage = null;
+            var invalidOnly = false;
+
+            function esc(v) { return APS.escapeHtml(v === null || v === undefined ? '' : v); }
+
+            function formatSize(bytes) {
+                if (bytes < 1024) { return bytes + ' B'; }
+                if (bytes < 1024 * 1024) { return (bytes / 1024).toFixed(1) + ' KB'; }
+                return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+            }
+
+            function setStep(n) {
+                $('.if-step').each(function () {
+                    var s = Number($(this).attr('data-step'));
+                    $(this).toggleClass('is-active', s === n).toggleClass('is-done', s < n);
+                });
+            }
+
+            // --- use case ----------------------------------------------------------
+            $('#useCaseId').on('change', function () {
+                window.location.href = urls.index + '?useCaseId=' + encodeURIComponent($(this).val() || '0');
+            });
+
+            // --- choosing a file -----------------------------------------------------
+            function openPicker() { $('#fileInput').trigger('click'); }
+
+                   $('#chooseFile').on('click', function (e) { e.preventDefault(); e.stopPropagation(); openPicker(); });
+
+        $('#ifDrop').on('click', function (e) {
+            // Buttons inside the zone handle themselves; a busy zone ignores clicks.
+            if ($(e.target).closest('button').length || $(this).hasClass('is-busy')) { return; }
+            openPicker();
+        }).on('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPicker(); }
+        });
+
+        // The picker's own click must never bubble into the drop zone.
+        $('#fileInput').on('click', function (e) { e.stopPropagation(); });
+
+            $('#fileInput').on('change', function () {
+                if (this.files && this.files.length) { readFile(this.files[0]); }
+                $(this).val('');
+            });
+
+            $('#ifDrop')
+                .on('dragenter dragover', function (e) { e.preventDefault(); $(this).addClass('is-over'); })
+                .on('dragleave', function (e) {
+                    if (!this.contains(e.relatedTarget)) { $(this).removeClass('is-over'); }
+                })
+                .on('drop', function (e) {
+                    e.preventDefault();
+                    $(this).removeClass('is-over');
+                    var files = e.originalEvent.dataTransfer.files;
+                    if (files && files.length) { readFile(files[0]); }
+                });
+
+            function showFile(file, state, message) {
+                var status = state === 'reading'
+                    ? '<span class="if-status"><i class="fa-solid fa-spinner fa-spin"></i>Reading and validating…</span>'
+                    : state === 'ready'
+                        ? '<span class="if-status is-ok"><i class="fa-solid fa-circle-check"></i>Ready to review</span>'
+                        : '<span class="if-status is-error"><i class="fa-solid fa-circle-exclamation"></i>' + esc(message) + '</span>';
+
+                $('#ifFile').html(
+                    '<div class="if-file-icon"><i class="fa-solid fa-file-excel"></i></div>' +
+                    '<div class="if-file-text"><strong>' + esc(file.name) + '</strong>' +
+                    '<span>' + formatSize(file.size) + '</span>' + status + '</div>' +
+                    '<div class="if-file-actions">' +
+                        '<button type="button" class="btn btn-sm" data-file="replace"' + (state === 'reading' ? ' disabled' : '') + '>' +
+                            '<i class="fa-solid fa-arrow-rotate-right"></i>Replace</button>' +
+                        '<button type="button" class="btn btn-sm" data-file="remove"' + (state === 'reading' ? ' disabled' : '') + '>' +
+                            '<i class="fa-solid fa-trash"></i>Remove</button>' +
+                    '</div>').prop('hidden', false);
+            }
+
+            $('#ifFile').on('click', '[data-file]', function () {
+                if ($(this).attr('data-file') === 'replace') { openPicker(); } else { reset(); }
+            });
+
+            function reset() {
+                pendingFile = null;
+                stage = null;
+                invalidOnly = false;
+                $('#ifFile').prop('hidden', true).empty();
+                $('#ifReview').prop('hidden', true);
+                $('#ifHead, #ifBody, #ifStats, #ifNotes, #ifFilter').empty();
+                setStep(1);
+            }
+
+            function readFile(file) {
+                if (!/\.xlsx$/i.test(file.name)) { APS.toast('Only .xlsx workbooks are supported.', 'error'); return; }
+                if (file.size > MAX_BYTES) { APS.toast('The file is larger than the 10 MB limit.', 'error'); return; }
+
+                $('#ifReview').prop('hidden', true);
+                showFile(file, 'reading');
+                $('#ifDrop').addClass('is-busy');
+
+                var data = new FormData();
+                data.append('file', file);
+                data.append('useCaseId', useCaseId);
+
+                APS.postFile(urls.preview, data, { quiet: true }).then(function (r) {
+                    $('#ifDrop').removeClass('is-busy');
+
+                    if (!r || !r.success) {
+                        var message = r && r.message ? r.message : 'The file could not be read.';
+                        showFile(file, 'error', message);
+                        APS.toast(message, 'error');
+                        setStep(1);
+                        return;
+                    }
+
+                    pendingFile = file;
+                    stage = r.data;
+                    invalidOnly = false;
+                    showFile(file, 'ready');
+                    renderReview();
+                    setStep(2);
+                });
+            }
+
+            // --- review ---------------------------------------------------------------
+            function renderReview() {
+                var d = stage;
+
+                $('#ifReviewFile').text(pendingFile.name);
+                $('#ifImport').html('<i class="fa-solid fa-file-import"></i>Import ' + d.totalCount + ' row' + (d.totalCount === 1 ? '' : 's'));
+
+                $('#ifStats').html(
+                    '<div class="if-stat"><span>Total rows</span><strong>' + d.totalCount + '</strong></div>' +
+                    '<div class="if-stat is-ok"><span>Valid</span><strong>' + d.validCount + '</strong></div>' +
+                    '<div class="if-stat' + (d.invalidCount ? ' is-error' : '') + '"><span>Invalid</span><strong>' + d.invalidCount + '</strong></div>');
+
+                var notes = [];
+                if (d.invalidCount) {
+                    notes.push('<i class="fa-solid fa-circle-info"></i>Invalid rows are imported with their reason and marked Validation Failed, so they do not go to review.');
+                }
+                if (d.ignoredExtraColumns && d.ignoredExtraColumns.length) {
+                    notes.push('<i class="fa-solid fa-circle-info"></i>Columns not in the template are ignored: ' + esc(d.ignoredExtraColumns.join(', ')) + '.');
+                }
+                if (d.totalCount > (d.rows || []).length) {
+                    notes.push('<i class="fa-solid fa-circle-info"></i>Showing the first ' + d.rows.length + ' of ' + d.totalCount + ' rows. All rows are imported.');
+                }
+                $('#ifNotes').html(notes.map(function (n) { return '<div>' + n + '</div>'; }).join(''));
+
+                $('#ifFilter').html(d.invalidCount
+                    ? '<button type="button" class="if-chip' + (invalidOnly ? '' : ' is-active') + '" data-filter="all">All rows</button>' +
+                      '<button type="button" class="if-chip' + (invalidOnly ? ' is-active' : '') + '" data-filter="invalid">Invalid only (' + d.invalidCount + ')</button>'
+                    : '');
+
+                $('#ifHead').html('<tr><th>Row</th>' + d.columns.map(function (c) {
+                    return '<th>' + esc(c.header) + '</th>';
+                }).join('') + '<th>Validation</th></tr>');
+
+                drawRows();
+                $('#ifReview').prop('hidden', false)[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+
+            function drawRows() {
+                var d = stage;
+                var rows = invalidOnly ? d.rows.filter(function (r) { return !r.isValid; }) : d.rows;
+
+                $('#ifBody').html(rows.length ? rows.map(function (r) {
+                    var cells = d.columns.map(function (c) {
+                        var v = r.values ? r.values[c.fieldCode] : '';
+                        return '<td>' + esc(v) + '</td>';
+                    }).join('');
+                    var status = r.isValid
+                        ? '<span class="badge badge-success">Valid</span>'
+                        : '<span class="badge badge-danger">Invalid</span><span class="if-reason">' + esc(r.message) + '</span>';
+                    return '<tr' + (r.isValid ? '' : ' class="is-invalid"') + '><td class="if-rownum">' + esc(r.rowNumber) + '</td>' +
+                        cells + '<td>' + status + '</td></tr>';
+                }).join('') : '<tr><td colspan="' + (d.columns.length + 2) + '" class="if-muted">No rows to show.</td></tr>');
+            }
+
+            $('#ifFilter').on('click', '[data-filter]', function () {
+                invalidOnly = $(this).attr('data-filter') === 'invalid';
+                $('#ifFilter .if-chip').removeClass('is-active');
+                $(this).addClass('is-active');
+                drawRows();
+            });
+
+            $('#ifDiscard').on('click', function () {
+                reset();
+                APS.toast('Upload discarded. Nothing was saved.', 'info');
+            });
+
+            $('#ifImport').on('click', function () {
+                if (!pendingFile) { return; }
+
+                var data = new FormData();
+                data.append('file', pendingFile);
+                data.append('useCaseId', useCaseId);
+
+                APS.busy(this, APS.postFile(urls.upload, data, { quiet: true })).then(function (r) {
+                    if (!r || !r.success) {
+                        APS.toast(r && r.message ? r.message : 'The import failed.', 'error');
+                        return;
+                    }
+                    setStep(3);
+                    APS.toast(r.message || 'Imported.', 'success');
+                    window.setTimeout(function () { window.location.reload(); }, 900);
+                });
+            });
+
+            // --- history ----------------------------------------------------------------
+            $(document).on('click', '[data-errors]', function () {
+                var inflowId = $(this).attr('data-errors');
+                APS.post(urls.batch, { inflowId: inflowId }).then(function (r) {
+                    if (!r || !r.success) { return; }
+                    var rows = r.data && r.data.rejectedRows ? r.data.rejectedRows : [];
+                    if (!rows.length) { APS.toast('No rejected rows found.', 'info'); return; }
+
+                    APS.openModal('Batch #' + inflowId + ': rejected rows',
+                        '<div class="table-wrap if-modal-table"><table><thead><tr><th>Row</th><th>Reason</th></tr></thead><tbody>' +
+                        rows.map(function (x) {
+                            return '<tr><td>' + esc(x.RowNumber || x.rownumber) + '</td><td>' + esc(x.ValidationMessage || x.validationmessage) + '</td></tr>';
+                        }).join('') + '</tbody></table></div>',
+                        '<button type="button" class="btn" data-modal-close>Close</button>');
+                });
+            });
+        })(jQuery);
+    </script>
+}

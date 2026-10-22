@@ -1,0 +1,227 @@
+@{
+    ViewBag.Title = "User Management";
+    var users = (DataTable)ViewBag.Users;
+    var history = (DataTable)ViewBag.History;
+    var canAssignAdmin = ViewBag.CurrentAccessType == ApsIdentity.RoleAdmin;
+
+    ViewData["PageTitle"] = "User Management";
+    ViewData["PageSubtitle"] = "Manage portal users, role assignment, active status, soft deletion, and audit history.";
+    ViewData["PageBreadcrumb"] = "Administration / User Management";
+    ViewData["PageActions"] = "<button class=\"btn btn-primary\" id=\"addUserButton\">" +
+                          "<i class=\"fa-solid fa-user-plus\"></i>Add user</button>";
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+<div class="grid layout-2-1">
+    <div class="card">
+        <div class="card-body">
+            <form class="toolbar" method="get" asp-action="Index">
+                <div class="toolbar-left">
+                    <input type="search" name="search" value="@ViewBag.Search"
+                           placeholder="Search users..." aria-label="Search users" />
+                    <select name="status" aria-label="Filter by status" onchange="this.form.submit()">
+                        @foreach (var option in new[] { "All statuses", "Active", "Inactive" })
+                        {
+                            <option value="@option" selected="@(((string)ViewBag.Status) == option)">@option</option>
+                        }
+                    </select>
+                    <button class="btn btn-sm" type="submit"><i class="fa-solid fa-magnifying-glass"></i>Search</button>
+                </div>
+                <div class="toolbar-right">
+                    <span class="badge badge-neutral">@users.Rows.Count users</span>
+                </div>
+            </form>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Portal ID</th><th>User</th><th>Role</th>
+                            <th>Status</th><th>Last action</th><th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @if (users.Rows.Count == 0)
+                    {
+                        <tr><td colspan="6">No users match this search. Clear the filters or add a user.</td></tr>
+                    }
+                    else
+                    {
+                        foreach (DataRow user in users.Rows)
+                        {
+                            var active = Convert.ToByte(user["activestatus"]) == 1;
+                            <tr>
+                                <td><strong>@user["portalid"]</strong></td>
+                                <td>
+                                    <strong>@user["firstname"] @user["lastname"]</strong><br />
+                                    <span class="input-help">@user["emailid"]</span>
+                                </td>
+                                <td><span class="badge badge-info">@user["accesstypename"]</span></td>
+                                <td>
+                                    <span class="badge @(active ? "badge-success" : "badge-danger")">
+                                        @(active ? "Active" : "Inactive")
+                                    </span>
+                                </td>
+                                <td>
+                                    @user["actiontype"]<br />
+                                    <span class="input-help">
+                                        @Convert.ToDateTime(user["actiondt"]).ToString("dd MMM yyyy · HH:mm") ·
+                                        @user["actionby"]
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="actions-cell">
+                                        <button class="btn btn-sm" data-action="edit-user"
+                                                data-uid="@user["uid"]">Edit</button>
+                                        <button class="btn btn-sm" data-action="toggle-user"
+                                                data-uid="@user["uid"]">
+                                            @(active ? "Inactivate" : "Activate")
+                                        </button>
+                                        <button class="btn btn-sm" data-action="delete-user"
+                                                data-uid="@user["uid"]"
+                                                data-name="@user["firstname"] @user["lastname"]">Delete</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title-row">
+                <div>
+                    <h2 class="card-title">Action history</h2>
+                    <p class="card-subtitle">Recent user administration changes.</p>
+                </div>
+                <span class="badge badge-neutral">Audit</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <ul class="timeline">
+                @foreach (DataRow entry in history.Rows)
+                {
+                    <li>
+                        <strong>@entry["firstname"] @entry["lastname"] · @entry["actiontype"]</strong>
+                        <span>
+                            @ApsIdentity.RoleNameFor(Convert.ToInt32(entry["accesstype"])) ·
+                            @entry["actionby"] ·
+                            @Convert.ToDateTime(entry["actiondt"]).ToString("dd MMM yyyy · HH:mm")
+                        </span>
+                    </li>
+                }
+            </ul>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+    (function ($) {
+        'use strict';
+
+        var canAssignAdmin = @(canAssignAdmin ? "true" : "false");
+
+        function roleOptions(selected) {
+            var roles = [[2, 'Manager'], [3, 'Associate']];
+            if (canAssignAdmin) { roles.unshift([1, 'Admin']); }
+
+            return roles.map(function (role) {
+                return '<option value="' + role[0] + '"' +
+                       (Number(selected) === role[0] ? ' selected' : '') + '>' + role[1] + '</option>';
+            }).join('');
+        }
+
+        function userForm(user) {
+            user = user || {};
+            return '' +
+              '<div class="form-grid">' +
+                '<div class="form-group"><label>Portal ID</label>' +
+                  '<input id="fPortalId" value="' + APS.escapeAttr(user.portalid || '') + '" maxlength="20" />' +
+                  '<span class="input-help">Windows username without the domain.</span>' +
+                  '<span class="field-error" data-for="fPortalId"></span></div>' +
+                '<div class="form-group"><label>Role</label>' +
+                  '<select id="fAccessType">' + roleOptions(user.accesstype) + '</select></div>' +
+                '<div class="form-group"><label>First name</label>' +
+                  '<input id="fFirstName" value="' + APS.escapeAttr(user.firstname || '') + '" maxlength="100" />' +
+                  '<span class="field-error" data-for="fFirstName"></span></div>' +
+                '<div class="form-group"><label>Last name</label>' +
+                  '<input id="fLastName" value="' + APS.escapeAttr(user.lastname || '') + '" maxlength="100" />' +
+                  '<span class="field-error" data-for="fLastName"></span></div>' +
+                '<div class="form-group full"><label>Email address</label>' +
+                  '<input id="fEmail" type="email" value="' + APS.escapeAttr(user.emailid || '') + '" maxlength="256" />' +
+                  '<span class="field-error" data-for="fEmail"></span></div>' +
+              '</div>';
+        }
+
+        function openUserModal(user) {
+            var isEdit = !!(user && user.uid);
+
+            APS.openModal(isEdit ? 'Edit user' : 'Add user', userForm(user),
+                '<button class="btn" data-modal-close>Cancel</button>' +
+                '<button class="btn btn-primary" id="saveUserButton">' +
+                (isEdit ? 'Save changes' : 'Add user') + '</button>');
+
+            $('#saveUserButton').on('click', function () {
+                var payload = {
+                    uid: isEdit ? user.uid : 0,
+                    portalid: $('#fPortalId').val().trim(),
+                    firstname: $('#fFirstName').val().trim(),
+                    lastname: $('#fLastName').val().trim(),
+                    emailid: $('#fEmail').val().trim(),
+                    accesstype: $('#fAccessType').val()
+                };
+
+                APS.busy(this, APS.post('@Url.Action("Save", "Users")', payload))
+                   .then(function (response) {
+                       if (!response.success) { return; }
+                       APS.closeModal();
+                       APS.toast(response.message, 'success');
+                       window.location.reload();
+                   });
+            });
+        }
+
+        $('#addUserButton').on('click', function () { openUserModal(null); });
+
+        $(document).on('click', '[data-action="edit-user"]', function () {
+            var uid = $(this).data('uid');
+            $.getJSON('@Url.Action("Get", "Users")', { id: uid }, function (response) {
+                if (response.success) { openUserModal(response.data); }
+                else { APS.toast(response.message, 'error'); }
+            });
+        });
+
+        $(document).on('click', '[data-action="toggle-user"]', function () {
+            APS.busy(this, APS.post('@Url.Action("ToggleStatus", "Users")', { uid: $(this).data('uid') }))
+               .then(function (response) {
+                   if (response.success) { window.location.reload(); }
+               });
+        });
+
+        $(document).on('click', '[data-action="delete-user"]', function () {
+            var uid = $(this).data('uid');
+            var name = $(this).data('name');
+
+            APS.confirmAction('Delete user',
+                'Deleting ' + name + ' marks the account inactive and records a Deleted audit entry. ' +
+                'The record itself is kept. Continue?',
+                'Delete user',
+                function () {
+                    APS.post('@Url.Action("Delete", "Users")', { uid: uid })
+                       .then(function (response) {
+                           if (response.success) {
+                               APS.toast(response.message, 'success');
+                               window.location.reload();
+                           }
+                       });
+                });
+        });
+    })(jQuery);
+</script>
+}

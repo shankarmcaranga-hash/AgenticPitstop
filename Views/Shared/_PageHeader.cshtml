@@ -1,0 +1,18 @@
+@*
+    Page header used by every screen. Pass values through ViewData so no model
+    class is needed:
+      PageTitle, PageSubtitle, PageBreadcrumb, PageActions (raw HTML string)
+
+    These keys are prefixed because ViewBag and ViewData are the same dictionary:
+    an unprefixed "Title" here would overwrite the browser title set by the view.
+*@
+<div class="page-header">
+    <div class="breadcrumb">@(ViewData["PageBreadcrumb"] ?? "Agentic PITSTOP")</div>
+    <div class="page-title-row">
+        <div>
+            <h1 class="page-title">@ViewData["PageTitle"]</h1>
+            <p class="page-subtitle">@ViewData["PageSubtitle"]</p>
+        </div>
+        <div class="page-actions">@Html.Raw(ViewData["PageActions"])</div>
+    </div>
+</div>

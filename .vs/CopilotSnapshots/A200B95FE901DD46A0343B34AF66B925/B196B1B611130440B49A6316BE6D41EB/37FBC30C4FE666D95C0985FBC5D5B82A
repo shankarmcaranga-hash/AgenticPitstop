@@ -1,0 +1,26 @@
+﻿namespace AgenticPitstop.Models;
+
+public sealed class ReportMaster
+{
+    public int ReportId { get; set; }
+    public string ReportName { get; set; }
+    public string ProcedureName { get; set; }
+    public bool IsActive { get; set; }
+}
+
+public sealed class DynamicParameter
+{
+    public string Name { get; set; }
+    public string Value { get; set; }
+    public string ControlType { get; set; }
+    public string ParameterType { get; set; }
+}
+
+public sealed class DynamicReportViewModel
+{
+    public int ReportId { get; set; }
+    public string ReportName { get; set; }
+    public List<ReportMaster> Reports { get; set; } = new();
+    public List<DynamicParameter> Parameters { get; set; } = new();
+    public DataTable ResultData { get; set; }
+}

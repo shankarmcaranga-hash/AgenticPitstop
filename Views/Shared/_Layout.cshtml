@@ -1,0 +1,165 @@
+@{
+    var screens = ViewBag.NavScreens as List<ApsMetadata.ScreenEntry> ?? new List<ApsMetadata.ScreenEntry>();
+    var activeScreen = (string)(ViewBag.ActiveScreen ?? "");
+    var groups = screens.GroupBy(s => s.Group).ToList();
+    var customer = Context.RequestServices.GetRequiredService<IConfiguration>()["Aps:CustomerName"];
+    var lockShell = ViewData["LockShell"] as bool? ?? false;
+}
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@(ViewBag.Title ?? "Agentic PITSTOP")</title>
+
+    @* Every asset is served from this origin. No CDN references anywhere. *@
+    <link rel="stylesheet" href="~/lib/fontawesome/css/fontawesome.min.css" />
+    <link rel="stylesheet" href="~/lib/fontawesome/css/solid.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" />
+    @await RenderSectionAsync("Styles", required: false)
+    <script nonce="@Context.ApsNonce()">
+        try {
+            if (localStorage.getItem('aps.sidebar') === 'collapsed') {
+                document.documentElement.classList.add('sidebar-collapsed');
+            }
+        } catch (e) { }
+    </script>
+    <link rel="stylesheet" href="~/css/inflow-versioning.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/config-workspace.css" asp-append-version="true" />
+</head>
+<body>
+    <div class="app-shell @(lockShell ? "shell-locked" : "")" id="appShell">
+
+    <header class="topbar">
+        <div class="brand-wrap">
+            <button class="icon-button sidebar-toggle" id="sidebarToggle" aria-label="Toggle navigation">
+                <i class="fa-solid fa-bars" aria-hidden="true"></i>
+            </button>
+            <div class="brand-mark" aria-hidden="true"><i class="fa-solid fa-flag-checkered"></i></div>
+            <div class="brand-copy">
+                <strong>Agentic PITSTOP</strong>
+                <span>@(string.IsNullOrWhiteSpace(customer) ? "Human-in-the-loop operations" : customer)</span>
+            </div>
+        </div>
+
+        <div class="global-search">
+            <span aria-hidden="true"><i class="fa-solid fa-magnifying-glass"></i></span>
+                <input id="globalSearch" type="search" placeholder="Search screens, records, agents..."
+                       aria-label="Global search" autocomplete="off" disabled="@lockShell" />
+            <kbd>Ctrl K</kbd>
+        </div>
+
+        <div class="topbar-actions">
+            @if (ViewBag.CurrentAccessType == ApsIdentity.RoleAdmin)
+            {
+                <a class="icon-button" asp-controller="Configuration" asp-action="Index"
+                   title="Configuration" aria-label="Configuration">
+                    <i class="fa-solid fa-gear" aria-hidden="true"></i>
+                </a>
+            }
+            <button class="icon-button" id="themeToggle" title="Switch light and dark theme"
+                    aria-label="Switch theme">
+                <i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>
+            </button>
+            <div class="user-menu">
+                <div class="avatar">@ViewBag.CurrentUserInitials</div>
+                <div class="user-copy">
+                    <strong>@ViewBag.CurrentUserName</strong>
+                    @* Role comes from APS_Users, resolved from the Windows identity.
+                       There is no role switcher in Phase 2 — the prototype's switcher
+                       was a review aid and would have been an authorization hole. *@
+                    <span>@ViewBag.CurrentRoleName</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
+        <nav id="primaryNav">
+            @foreach (var group in groups)
+            {
+                    <div class="nav-group-label">@group.Key</div>
+                    foreach (var screen in group)
+                    {
+                        @* With the shell locked these are spans, not links, so they
+                           cannot be clicked, tabbed to, middle-clicked or copied. *@
+                        if (lockShell)
+                        {
+                            <span class="nav-item is-locked" aria-disabled="true" title="@screen.Label">
+                                <span class="nav-icon"><i class="fa-solid @screen.Icon" aria-hidden="true"></i></span>
+                                <span class="nav-label">@screen.Label</span>
+                            </span>
+                        }
+                        else
+                        {
+                            <a class="nav-item @(screen.Key == activeScreen ? "active" : "")"
+                               asp-controller="@screen.Controller" asp-action="@screen.Action"
+                               title="@screen.Label">
+                                <span class="nav-icon"><i class="fa-solid @screen.Icon" aria-hidden="true"></i></span>
+                                <span class="nav-label">@screen.Label</span>
+                            </a>
+                        }
+                    }
+            }
+        </nav>
+        <div class="sidebar-note">
+            <span class="status-dot success"></span>
+            <div><strong>@ViewBag.CurrentRoleName</strong><small>Signed in via Windows</small></div>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <div class="mobile-search">
+            <input id="mobileGlobalSearch" type="search" placeholder="Search..." aria-label="Search" />
+        </div>
+        <section id="screenRoot" aria-live="polite">
+            @RenderBody()
+        </section>
+    </main>
+
+    <footer class="footer">2026 - &copy; All rights reserved</footer>
+</div>
+
+<div id="modalRoot" class="modal-root" aria-hidden="true"></div>
+<div id="toastRoot" class="toast-root" aria-live="polite" aria-atomic="true"></div>
+
+@* The anti-forgery token is emitted once and attached to every AJAX request by
+   aps.core.js, so no individual form has to remember to include it. *@
+<form id="apsAntiforgery">@Html.AntiForgeryToken()</form>
+
+<script src="~/lib/jquery/jquery.min.js"></script>
+<script src="~/js/aps.core.js"></script>
+ <script src="~/js/source-builder.js" asp-append-version="true"></script>
+    <script nonce="@Context.ApsNonce()">
+        // Mirrors the server's window so an idle tab moves itself to the expiry
+        // page instead of waiting for the next click. The server is what decides.
+        (function () {
+            var minutes = @(Context.RequestServices.GetRequiredService<IConfiguration>()
+                                                        .GetValue<int?>("Aps:IdleTimeoutMinutes") ?? 20);
+            if (minutes <= 0) { return; }
+
+            var expiredUrl = '@Url.Action("SessionExpired", "Home")';
+            var timer;
+
+            // aps.core.js has no Razor, so the URL is published here for the
+            // 401 handler to use.
+            window.APS_EXPIRED_URL = expiredUrl;
+
+            function reset() {
+                window.clearTimeout(timer);
+                timer = window.setTimeout(function () {
+                    window.location.href = expiredUrl;
+                }, minutes * 60 * 1000);
+            }
+
+            ['click', 'keydown', 'scroll', 'mousemove', 'touchstart']
+                .forEach(function (name) {
+                    document.addEventListener(name, reset, { passive: true });
+                });
+
+            reset();
+        })();
+    </script>
+@await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

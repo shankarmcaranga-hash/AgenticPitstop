@@ -1,0 +1,572 @@
+﻿@{
+    var questions = ViewBag.ChecklistQuestions as DataTable ?? new DataTable();
+    var categories = ViewBag.ManageCategories as DataTable ?? new DataTable();
+    var sources = ViewBag.SourceRegistry as DataTable ?? new DataTable();
+}
+@if ((int)(ViewBag.UseCaseID ?? 0) > 0)
+{
+    var mapped = ((DataTable)ViewBag.UseCaseQuestions ?? new DataTable()).AsEnumerable()
+        .Where(r => ApsMetadata.Cell(r, "Mapped") == "True" || ApsMetadata.Cell(r, "Mapped") == "1")
+        .Select(r => ApsMetadata.Cell(r, "QuestionId")).ToList();
+
+    <div class="callout" style="margin-bottom:14px">
+        <i class="fa-solid fa-circle-info"></i>
+        <strong>@mapped.Count</strong> question(s) are asked for this use case.
+        <button type="button" class="btn btn-sm" id="mapQuestions">Choose questions</button>
+    </div>
+}
+<div class="card checklist-screen">
+    <div class="card-header"><div class="card-title-row"><div><h2 class="card-title screen-title">Checklist Master</h2><p class="card-subtitle">Create reusable checklist questions and define which source(s) are applicable to each question.</p></div><div class="page-actions"><button class="btn" type="button" id="manageCategories">Manage Categories</button><button class="btn btn-primary" id="addQuestion"><i class="fa-solid fa-plus"></i>Add Question</button></div></div></div><div class="card-body">
+        <div class="report-info source-stats"><div><span>Total questions</span><strong>@questions.Rows.Count</strong><small>Configured in checklist master</small></div><div><span>Multi-source questions</span><strong>@(questions.Rows.Cast<DataRow>().Count(r => (ApsMetadata.Cell(r, "sourceavailability").Length > 0 ? ApsMetadata.Cell(r, "sourceavailability") : ApsMetadata.Cell(r, "sourceapplicability")).Count(c => c == ',') > 0))</strong><small>Need evidence from 2+ sources</small></div><div><span>Categories</span><strong>@categories.Rows.Count</strong><small>Business grouping / applicability</small></div></div><div class="section-title-row" style="margin-top:22px"><div><h3 class="card-title">Checklist Questions</h3><p class="card-subtitle">Instruction prompt tells the agent what to evaluate. Business rules prompt defines PASS/FAIL/N/A or other decision rules.</p></div></div><div class="form-grid">
+            <div class="toolbar">
+                <input id="questionSearch" type="search" placeholder="Search question, category, source..." /><select id="questionCategoryFilter">
+                    <option value="">All categories</option>@foreach (DataRow category in categories.Rows){
+                    <option value="@ApsMetadata.Cell(category, "categoryname")">@ApsMetadata.Cell(category, "categoryname")</option>
+                                        }
+                </select><select id="questionStatusFilter"><option value="">All statuses</option><option value="true">Active</option><option value="false">Inactive</option></select>
+            </div>
+        </div><div class="table-wrap">
+            <table>
+                <thead><tr><th>#</th><th>Question / Category</th><th>Source Applicability</th><th>Instruction Prompt</th><th>Business Rules Prompt</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                    @foreach (DataRow question in questions.Rows)
+                    {
+                        <tr data-category="@ApsMetadata.Cell(question, "category")" data-status="@ApsMetadata.Cell(question, "status")"><td>@ApsMetadata.Cell(question, "questionid")</td><td><strong>@ApsMetadata.Cell(question, "question")</strong><small>@ApsMetadata.Cell(question, "category")</small></td><td class="source-availability-cell">@(ApsMetadata.Cell(question, "sourceavailability").Length > 0 ? ApsMetadata.Cell(question, "sourceavailability") : (ApsMetadata.Cell(question, "sourceapplicability").Length > 0 ? ApsMetadata.Cell(question, "sourceapplicability") : ApsMetadata.Cell(question, "sources")))</td><td>@ApsMetadata.Cell(question, "instructionprompt")</td><td>@ApsMetadata.Cell(question, "businessrulesprompt")</td><td><span class="badge @(string.Equals(ApsMetadata.Cell(question, "status"), "true", StringComparison.OrdinalIgnoreCase) || ApsMetadata.Cell(question, "status") == "1" ? "badge-success" : "badge-danger")">@(string.Equals(ApsMetadata.Cell(question, "status"), "true", StringComparison.OrdinalIgnoreCase) || ApsMetadata.Cell(question, "status") == "1" ? "Active" : "Inactive")</span></td><td><button type="button" class="btn btn-sm edit-question">Edit</button><button type="button" class="btn btn-sm clone-question">Clone</button><button type="button" class="btn btn-sm btn-danger delete-question">Delete</button></td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div id="questionModal" class="modal" hidden>
+    <div class="modal-card">
+        <div class="card-header">
+            <div class="card-title-row">
+                <h2 class="card-title">Add Checklist Question</h2>
+                <button type="button" class="btn btn-sm close-question">×</button>
+            </div>
+        </div>
+        <div class="card-body">
+            <input id="questionId" type="hidden" />
+            <div class="form-grid">
+                <div class="form-group full">
+                    <label for="questionText">Question</label>
+                    <textarea id="questionText"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="questionCategory">Category</label>
+                    <select id="questionCategory" class="form-control">
+                        @foreach (DataRow category in categories.Rows)
+                        {
+                            <option value="@ApsMetadata.Cell(category, "categoryname")">@ApsMetadata.Cell(category, "categoryname")</option>
+                        }
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="questionStatus">Status</label>
+                    <select id="questionStatus" class="form-control">
+                        <option value="Active">Active</option>
+                        <option value="Inactive">Inactive</option>
+                    </select>
+                </div>
+
+                <div class="form-group full">
+                    <label class="field-label">
+                        Source Applicability <span class="required">*</span>
+                    </label>
+                    <div class="source-dropdown-container">
+                        <div class="source-dropdown-header">
+                            <span id="sourceSelectionText">Select one or more sources</span>
+                            <span class="dropdown-arrow">⌄</span>
+                        </div>
+
+                        <div class="source-list">
+                            @foreach (DataRow source in sources.Rows)
+                            {
+                                var sourceId = ApsMetadata.Cell(source, "sourceid");
+                                var sourceName = ApsMetadata.Cell(source, "sourcename");
+                                var sourceType = ApsMetadata.Cell(source, "sourcetype");
+                                var sourceCode = ApsMetadata.Cell(source, "sourcecode");
+                                <div class="source-item" data-source-code="@sourceCode">
+                                    <input type="checkbox" id="questionSource_@sourceId" value="@sourceId" class="question-source" />
+                                    <label for="questionSource_@sourceId">
+                                        <div class="source-title">@sourceName</div>
+                                        <div class="source-subtitle">@sourceType · @sourceCode</div>
+                                    </label>
+                                </div>
+                            }
+                        </div>
+                        <div id="selectedSourceNames" class="selected-source-names"></div>
+                        <small class="input-help">A question can require multiple sources, such as core application + document extraction + work notes.</small>
+                    </div>
+                </div>
+                <div class="form-group full">
+                    <label for="instructionPrompt">Instruction Prompt</label>
+                    <textarea id="instructionPrompt"></textarea>
+                </div>
+                <div class="form-group full">
+                    <label for="businessRulesPrompt">Business Rules Prompt</label>
+                    <textarea id="businessRulesPrompt"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="questionOutputType">Output Type</label>
+                    <select id="questionOutputType" class="form-control">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="displayOrder">Display Order</label>
+                    <input type="number"
+                           id="displayOrder"
+                           min="0"
+                           step="1"
+                           value="0"
+                           class="form-control">
+                </div>
+                <div class="form-group full">
+                    <label for="questionnotes">Developer Notes</label>
+                    <textarea id="questionnotes" placeholder=""></textarea>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button class="btn close-question" type="button">Cancel</button>
+                <button class="btn btn-primary" id="saveQuestion" type="button">Save Question</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="categoryModal" class="modal" hidden>
+    <div class="modal-card category-modal-card">
+        <div class="category-modal-header"><div><h2>Manage Categories</h2><p>Categories are generic business groupings, not hard-coded to a specific industry.</p></div><button type="button" class="category-close close-category" aria-label="Close">×</button></div>
+        <div class="category-modal-body">
+            <div class="category-add-row"><input id="categoryName" placeholder="New category name" /><button type="button" class="btn btn-primary" id="saveCategory">Add</button></div>
+            <div class="category-rows">
+                @foreach (DataRow category in categories.Rows)
+                {
+                    <div class="category-row" data-category-id="@ApsMetadata.Cell(category, "categoryid")"><div><strong>@ApsMetadata.Cell(category, "categoryname")</strong><span>0 questions</span></div><button type="button" class="btn btn-danger category-delete">Delete</button></div>
+                }
+            </div>
+        </div>
+        <div class="category-modal-footer"><button type="button" class="btn btn-primary close-category">Done</button></div>
+    </div>
+</div>
+<script nonce="@Context.ApsNonce()">
+    (window.apsReady = window.apsReady || []).push(function ($) { function show(mode, row) { $('#questionModal').removeAttr('hidden'); $('#questionModal .card-title').text(mode === 'edit' ? 'Edit Checklist Question' : 'Add Checklist Question'); $('#questionId').val(row ? row.find('td').eq(0).text().trim() : 0); $('#questionText').val(row ? row.find('td').eq(1).find('strong').text() : ''); $('#questionCategory').val(row ? row.find('td').eq(1).find('small').text() : 'Product'); $('#questionSources').val(row ? row.find('td').eq(2).text() : ''); $('#instructionPrompt').val(row ? row.find('td').eq(3).text() : ''); $('#businessRulesPrompt').val(row ? row.find('td').eq(4).text() : ''); $('.question-source').prop('checked', false); if (row) { var selected = row.find('td').eq(2).text().split(',').map(function (item) { return item.trim(); }); $('.question-source').each(function () { $(this).prop('checked', selected.indexOf(this.value) >= 0); }); } updateSelectedSources(); $('#questionText').trigger('focus'); } function close() { $('#questionModal').attr('hidden', 'hidden'); } function field(record, names) {
+            for (var i = 0; i < names.length; i++) {
+                var key = Object.keys(record || {}).filter(function (candidate) { return candidate.toLowerCase() === names[i].toLowerCase(); })[0];
+                if (key && record[key] !== null) return record[key];
+            }
+            return '';
+        }
+            $('#mapQuestions').on('click', function () {
+        var all = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+            ((DataTable)ViewBag.UseCaseQuestions ?? new DataTable()).AsEnumerable().Select(r => new {
+                id = ApsMetadata.Cell(r, "QuestionId"),
+                text = ApsMetadata.Cell(r, "Question"),
+                category = ApsMetadata.Cell(r, "Category"),
+                mapped = ApsMetadata.Cell(r, "Mapped") == "True" || ApsMetadata.Cell(r, "Mapped") == "1"
+            })));
+
+        APS.openModal('Questions for this use case',
+            '<div class="dl-questions">' + all.map(function (q) {
+                return '<label class="dl-check"><input type="checkbox" class="uc-question" value="' + q.id + '"' +
+                       (q.mapped ? ' checked' : '') + ' /><span>' + APS.escapeHtml(q.text) +
+                       '<small>' + APS.escapeHtml(q.category || '') + '</small></span></label>';
+            }).join('') + '</div>',
+            '<button class="btn" data-modal-close>Cancel</button>' +
+            '<button class="btn btn-primary" id="saveMapping">Save</button>');
+
+        $('#saveMapping').on('click', function () {
+            var ids = $('.uc-question:checked').map(function () { return this.value; }).get();
+            APS.post('@Url.Action("SaveUseCaseQuestions", "Configuration")', {
+                useCaseId: @((int)(ViewBag.UseCaseID ?? 0)),
+                questionIds: ids.join(',')
+            }).then(function (r) {
+                if (!r.success) { return; }
+                APS.closeModal();
+                APS.toast(r.message, 'success');
+                window.setTimeout(function () { window.location.reload(); }, 700);
+            });
+        });
+    });
+        function populateQuestion(record) {
+            $('#questionId').val(field(record, ['questionid', 'id']));
+            $('#questionText').val(field(record, ['question']));
+            $('#questionCategory').val(field(record, ['category']));
+            $('#instructionPrompt').val(field(record, ['instructionprompt']));
+            $('#businessRulesPrompt').val(field(record, ['businessrulesprompt']));
+            $('#questionOutputType').val(field(record, ['outputtype']));
+            $('#displayOrder').val(field(record, ['displayorder', 'sortorder']));
+            $('#questionnotes').val(field(record, ['questionnotes', 'developernotes', 'notes']));
+            $('.question-source').prop('checked', false);
+            var rawSources = field(record, ['sources', 'sourceavailability', 'sourceapplicability']);
+            var selected;
+            try { selected = Array.isArray(rawSources) ? rawSources : JSON.parse(rawSources || '[]'); }
+            catch (e) { selected = String(rawSources || '').split(','); }
+            if (!Array.isArray(selected)) selected = [selected];
+            selected = selected.map(function (item) {
+                if (item && typeof item === 'object') return String(item.sourceid || item.sourcecode || item.code || item.value || item.sourcename || '').trim();
+                return String(item).trim().replace(/^"|"$/g, '');
+            });
+            $('.question-source').each(function () {
+                var sourceItem = $(this).closest('.source-item');
+                var sourceId = this.value;
+                var sourceCode = sourceItem.data('source-code');
+                var title = sourceItem.find('.source-title').text().trim();
+                $(this).prop('checked', selected.indexOf(sourceId) >= 0 || selected.indexOf(String(sourceCode)) >= 0 || selected.indexOf(title) >= 0);
+            });
+            updateSelectedSources();
+        }
+        // load output types from server-provided lookup instead of hardcoded list
+        $.get('@Url.Action("OutputTypes", "Configuration")').done(function (response) {
+            if (!response || !response.success) return;
+            var $sel = $('#questionOutputType');
+            $sel.empty();
+            $sel.append('<option value="">-- Choose output type --</option>');
+            (response.data || []).forEach(function (item) {
+                var val = field(item, ['outputtypeid', 'id', 'value']) || field(item, ['id', 'value']) || '';
+                var text = field(item, ['outputtypename', 'name', 'displayname']) || field(item, ['name', 'text']) || val;
+                $sel.append('<option value="' + APS.escapeAttr(val) + '">' + APS.escapeHtml(text) + '</option>');
+            });
+        });
+        $(document).on('click', '#addQuestion', function (e) { e.preventDefault(); show('add'); }); $(document).on('click', '.close-question', close); $(document).on('click', '.edit-question', function () { var id = $(this).closest('tr').find('td').eq(0).text().trim(); $.get('@Url.Action("ChecklistQuestion", "Configuration")', { questionid: id }).done(function (response) { if (response.success) { show('edit'); populateQuestion(response.data); } else APS.toast(response.message || 'Checklist question could not be loaded.', 'error'); }).fail(function () { APS.toast('Checklist question could not be loaded.', 'error'); }); }); $('#saveQuestion').on('click', function () { var selectedSources = $('.question-source:checked').map(function () { return this.value; }).get(); APS.post('@Url.Action("SaveChecklistQuestion", "Configuration")', { questionid: $('#questionId').val(), category: $('#questionCategory').val(), question: $('#questionText').val(), instructionprompt: $('#instructionPrompt').val(), businessrulesprompt: $('#businessRulesPrompt').val(), sourcesJson: JSON.stringify(selectedSources) , outputtype: $('#questionOutputType').val() , displayorder: $('#displayOrder').val() , developernotes: $('#questionnotes').val() }).then(function (r) { if (r.success) window.location.reload(); }); }); $(document).on('click', '.delete-question', function () { if (!confirm('Deactivate this question?')) return; APS.post('@Url.Action("DeleteChecklistQuestion", "Configuration")', { questionid: $(this).closest('tr').find('td').eq(0).text() }).then(function (r) { if (r.success) window.location.reload(); }); }); $(document).on('click', '.clone-question', function () {
+            APS.post('@Url.Action("CloneChecklistQuestion", "Configuration")', { questionid: $(this).closest('tr').find('td').eq(0).text().trim() }).then(function (response) {
+                if (response.success) window.location.reload();
+            });
+        });
+        function filterQuestions() {
+            var search = $('#questionSearch').val().toLowerCase().trim();
+            var category = $('#questionCategoryFilter').val().toLowerCase();
+            var status = $('#questionStatusFilter').val().toLowerCase();
+            $('.checklist-screen table tbody tr').each(function () {
+                var $row = $(this), rowStatus = String($row.data('status')).toLowerCase();
+                var matchesSearch = !search || $row.text().toLowerCase().indexOf(search) >= 0;
+                var matchesCategory = !category || String($row.data('category')).toLowerCase() === category;
+                var matchesStatus = !status || rowStatus === status || (status === 'true' && rowStatus === '1') || (status === 'false' && rowStatus === '0');
+                $row.toggle(matchesSearch && matchesCategory && matchesStatus);
+            });
+        }
+        $('#questionSearch,#questionCategoryFilter,#questionStatusFilter').on('input change', filterQuestions);
+        $('#questionModal .source-dropdown-header').on('click', function (event) { event.preventDefault(); var $list = $(this).closest('.source-dropdown-container').find('.source-list'); $list.stop(true, true).slideToggle(150); $(this).find('.dropdown-arrow').toggleClass('rotate'); }); function updateSelectedSources() { var selected = $('.question-source:checked').map(function () { return { code: this.value, name: $(this).closest('.source-item').find('.source-title').text().trim() }; }).get(); $('#sourceSelectionText').text(selected.length ? selected.length + ' source' + (selected.length === 1 ? '' : 's') + ' selected' : 'Select one or more sources'); $('#selectedSourceNames').html(selected.map(function (source) { return '<span class="selected-source-badge">' + APS.escapeHtml(source.name) + '</span>'; }).join('')); } $(document).on('change', '.question-source', updateSelectedSources); function formatGridSourceAvailability() {
+             var sourceNames = {};
+             $('.question-source').each(function () {
+                 var sourceItem = $(this).closest('.source-item');
+                 var sourceTitle = sourceItem.find('.source-title').text().trim();
+                 sourceNames[this.value] = sourceTitle;
+                 sourceNames[String(sourceItem.data('source-code'))] = sourceTitle;
+             });
+            $('.checklist-screen table tbody tr').each(function () {
+                var $cell = $(this).find('td').eq(2), raw = $cell.text().trim(), selected;
+                try { selected = JSON.parse(raw || '[]'); } catch (e) { selected = raw.split(','); }
+                if (!Array.isArray(selected)) selected = [selected];
+                var badges = selected.map(function (item) { var code = item && typeof item === 'object' ? (item.sourcecode || item.code || item.value) : String(item).trim(); return sourceNames[code] || code; }).filter(Boolean);
+                $cell.html(badges.map(function (name) { return '<span class="selected-source-badge">' + APS.escapeHtml(name) + '</span>'; }).join(' '));
+            });
+        }
+        formatGridSourceAvailability();
+        $('#manageCategories').on('click', function () {
+            $('#categoryModal').removeAttr('hidden');
+            $('#categoryName').val('').trigger('focus');
+            $('#categoryDescription').val('');
+        });
+        $(document).on('click', '.close-category', function () { $('#categoryModal').attr('hidden', 'hidden'); });
+        $('#saveCategory').on('click', function () {
+            APS.post('@Url.Action("SaveManageCategory", "Configuration")', {
+                categoryid: 0,
+                categoryname: $('#categoryName').val(),
+                activestatus: true
+            }).then(function (response) {
+                if (response.success) window.location.reload();
+            });
+        });
+        $(document).on('click', '.category-delete', function () {
+            var $row = $(this).closest('.category-row');
+            if (!confirm('Delete this category?')) return;
+            APS.post('@Url.Action("DeleteManageCategory", "Configuration")', {
+                categoryid: $row.data('category-id')
+            }).then(function (response) {
+                if (response.success) window.location.reload();
+            });
+        });
+    });</script>
+<style>
+    .checklist-screen .toolbar {
+        align-items: center;
+        display: grid;
+        gap: 34px;
+        grid-template-columns: minmax(300px, 1fr) 298px 185px;
+        margin: 14px 0;
+    }
+
+        .checklist-screen .toolbar input, .checklist-screen .toolbar select {
+            font-size: 18px;
+            min-height: 64px;
+            min-width: 0;
+            padding: 12px 16px;
+        }
+
+        .checklist-screen .toolbar input, .checklist-screen .toolbar select {
+            min-width: 0;
+        }
+
+    .category-modal-card {
+        /* Reduced modal size for Manage Categories */
+        max-height: 70vh;
+        max-width: 640px;
+        width: min(640px, calc(100vw - 40px));
+    }
+
+    .category-modal-body {
+        max-height: 360px;
+        overflow-y: hidden;
+        padding: 22px 26px 8px;
+    }
+
+    .category-row strong {
+        color: #172033;
+        display: block;
+        font-size: 17px;
+    }
+
+    .category-row span {
+        color: #667085;
+        display: block;
+        font-size: 13px;
+        margin-top: 4px;
+    }
+
+    @@media (max-width: 760px) {
+        .checklist-screen .toolbar {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @@media (max-width: 650px) {
+        .category-modal-header {
+            padding: 18px;
+        }
+
+        .category-modal-body {
+            padding: 18px 14px 8px;
+        }
+
+        .category-modal-footer {
+            padding: 12px 18px 16px;
+        }
+
+        .category-modal-header h2 {
+            font-size: 22px;
+        }
+
+        .category-modal-header p {
+            font-size: 13px;
+        }
+    }
+
+    .category-modal-card {
+        /* Ensure a smaller consistent width for category modal */
+        max-width: 640px;
+        width: min(640px, calc(100vw - 40px));
+    }
+
+    .category-modal-header {
+        align-items: flex-start;
+        border-bottom: 1px solid #e3e8f0;
+        display: flex;
+        justify-content: space-between;
+        padding: 18px 20px 14px;
+    }
+
+        .category-modal-header h2 {
+            color: #172033;
+            font-size: 28px;
+            margin: 0;
+        }
+
+        .category-modal-header p {
+            color: #667085;
+            font-size: 16px;
+            margin: 8px 0 0;
+        }
+
+    .category-close {
+        background: #f1f4f8;
+        border: 0;
+        border-radius: 14px;
+        color: #172033;
+        font-size: 28px;
+        height: 52px;
+        line-height: 1;
+        width: 52px;
+    }
+
+    .category-modal-body {
+        max-height: 520px;
+        overflow-y: hidden;
+        padding: 30px 32px 10px;
+    }
+
+    .category-add-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 14px;
+        margin-bottom: 22px;
+    }
+
+        .category-add-row input {
+            font-size: 18px;
+            min-height: 62px;
+            padding: 12px 18px;
+        }
+
+        .category-add-row .btn, .category-modal-footer .btn {
+            font-size: 18px;
+            min-height: 62px;
+            padding: 12px 24px;
+        }
+
+    .category-rows {
+        display: grid;
+    }
+
+    .category-row {
+        align-items: center;
+        border-bottom: 1px solid #e3e8f0;
+        display: flex;
+        justify-content: space-between;
+        padding: 18px 14px;
+    }
+
+        .category-row strong {
+            color: #172033;
+            display: block;
+            font-size: 21px;
+        }
+
+        .category-row span {
+            color: #667085;
+            display: block;
+            font-size: 16px;
+            margin-top: 5px;
+        }
+
+        .category-row .btn-danger {
+            background: #fff7f5;
+            border-color: #ffd8d0;
+            color: #c0392b;
+            font-size: 16px;
+        }
+
+    .category-modal-footer {
+        background: #f8fafc;
+        border-top: 1px solid #e3e8f0;
+        display: flex;
+        justify-content: flex-end;
+        padding: 18px 32px 24px;
+        background: var(--surface);
+        border: 1px solid #cfd9e8;
+        border-radius: 16px;
+        color: #111111;
+        cursor: pointer;
+    }
+
+    .source-dropdown-header {
+        font-size: 18px;
+        justify-content: space-between;
+        padding: 12px 18px;
+    }
+
+    .source-dropdown-header .dropdown-arrow {
+        color: var(--muted);
+        font-size: 24px;
+        line-height: 1;
+        transition: transform .15s ease;
+    }
+
+    .source-dropdown-header .dropdown-arrow.rotate {
+        transform: rotate(180deg);
+    }
+
+    .source-list {
+        background: var(--surface);
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        margin-top: 10px;
+        max-height: 360px;
+        overflow-y: auto;
+        padding: 18px 24px;
+    }
+
+    .source-item {
+        align-items: flex-start;
+        display: flex;
+        gap: 8px;
+        padding: 12px 4px;
+    }
+
+        .source-item + .source-item {
+            margin-top: 12px;
+        }
+
+        .source-item input.question-source {
+            flex: 0 0 auto;
+            height: 20px;
+            margin: 2px 0 0;
+            min-height: 20px;
+            width: 20px;
+        }
+
+        .source-item label {
+            color: #344b6a;
+            cursor: pointer;
+            line-height: 1.25;
+        }
+
+        .source-item .source-title {
+            font-size: 19px;
+            font-weight: 700;
+        }
+
+        .source-item .source-subtitle {
+            font-size: 16px;
+            font-weight: 600;
+            /*margin-top: 6px;*/
+            align-items: center;
+            display: flex;
+            /*min-height: 64px;*/
+        }
+
+    .selected-source-names {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+    }
+
+    .selected-source-badge {
+        background: #fff3e4;
+        border-radius: 999px;
+        color: #b84d00;
+        font-size: 16px;
+        font-weight: 700;
+        padding: 8px 13px;
+        display: inline-block;
+        margin: 2px;
+        max-width: 100%;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .source-availability-cell {
+        min-width: 180px;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .selected-source-badge:nth-child(2n) {
+        background: #e8f1ff;
+        color: #1457d9;
+    }
+</style>

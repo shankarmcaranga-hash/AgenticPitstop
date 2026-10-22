@@ -1,0 +1,296 @@
+@{
+    ViewBag.Title = "Agents Scheduler";
+    var agents = (DataTable)ViewBag.Agents;
+
+    ViewData["PageTitle"] = "Agents scheduler";
+    ViewData["PageSubtitle"] = "Register the agents that process inflow records and set when each one runs.";
+    ViewData["PageBreadcrumb"] = "Operations / Agents Scheduler";
+    ViewData["PageActions"] = "<button class=\"btn btn-primary\" id=\"newAgentButton\">" +
+                          "<i class=\"fa-solid fa-plus\"></i>New agent</button>";
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+<div class="card">
+    <div class="card-header">
+        <div class="card-title-row">
+            <div>
+                <h2 class="card-title">Scheduled agents</h2>
+                <p class="card-subtitle">Every registered agent and its current schedule.</p>
+            </div>
+            <span class="badge badge-neutral">@agents.Rows.Count agents</span>
+        </div>
+    </div>
+    <div class="card-body">
+        @if (agents.Rows.Count == 0)
+        {
+            ViewData["EmptyIcon"] = "fa-robot";
+            ViewData["EmptyHeading"] = "No agents registered";
+            ViewData["EmptyMessage"] = "Add the first agent to start scheduling extraction, validation or orchestration work.";
+
+            @await Html.PartialAsync("_EmptyState")
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Agent</th><th>Endpoint</th><th>Schedule</th>
+                            <th>Status</th><th>Last modified</th><th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (DataRow agent in agents.Rows)
+                    {
+                        var active = Convert.ToByte(agent["activestatus"]) == 1;
+                        <tr>
+                            <td>
+                                <strong>@agent["agentname"]</strong><br />
+                                <span class="input-help">@agent["purpose"]</span>
+                            </td>
+                            <td><span class="input-help">@agent["apiendpoint"]</span></td>
+                            <td>@agent["scheduletext"]</td>
+                            <td>
+                                <span class="badge @(active ? "badge-success" : "badge-neutral")">
+                                    @(active ? "Active" : "Paused")
+                                </span>
+                            </td>
+                            <td>
+                                <span class="input-help">
+                                    @Convert.ToDateTime(agent["modifiedon"]).ToString("dd MMM yyyy · HH:mm")<br />
+                                    @agent["modifiedby"]
+                                </span>
+                            </td>
+                            <td>
+                                <div class="actions-cell">
+                                    <button class="btn btn-sm" data-action="edit-agent"
+                                            data-agid="@agent["agid"]">Edit</button>
+                                    <button class="btn btn-sm" data-action="delete-agent"
+                                            data-agid="@agent["agid"]"
+                                            data-name="@agent["agentname"]">Deactivate</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+    <div class="card-header">
+        <div class="card-title-row">
+            <div>
+                <h2 class="card-title" id="agentFormTitle">Add an agent</h2>
+                <p class="card-subtitle">
+                    The portal stores the definition and schedule. Execution itself is carried
+                    out by the agent runner, which reports back through APS_AgentExecution.
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="form-grid">
+            <input type="hidden" id="agentId" value="0" />
+
+            <div class="form-group">
+                <label for="agentName">Agent name</label>
+                <input id="agentName" maxlength="200" placeholder="Document Extraction Agent" />
+                <span class="field-error" data-for="agentName"></span>
+            </div>
+
+            <div class="form-group">
+                <label for="agentActive">Status</label>
+                <select id="agentActive">
+                    <option value="1" selected>Active</option>
+                    <option value="0">Paused</option>
+                </select>
+            </div>
+
+            <div class="form-group full">
+                <label for="agentPurpose">Purpose</label>
+                <input id="agentPurpose" maxlength="1000"
+                       placeholder="Extract structured fields from supporting documents." />
+                <span class="field-error" data-for="agentPurpose"></span>
+            </div>
+
+            <div class="form-group full">
+                <label for="agentEndpoint">API endpoint</label>
+                <input id="agentEndpoint" type="url" placeholder="https://agents.example.com/extract" />
+                <span class="field-error" data-for="agentEndpoint"></span>
+            </div>
+
+            <div class="form-group full">
+                <label for="agentParams">API parameters</label>
+                <textarea id="agentParams" rows="3" placeholder='{ "mode": "structured" }'></textarea>
+                <span class="input-help">Optional. Valid JSON if supplied.</span>
+                <span class="field-error" data-for="agentParams"></span>
+            </div>
+
+            <div class="form-group">
+                <label for="agentScheduleType">Schedule</label>
+                <select id="agentScheduleType">
+                    <option value="1" selected>Daily - one time</option>
+                    <option value="2">Every N minutes</option>
+                </select>
+            </div>
+
+            <div class="form-group" id="agentTimeGroup">
+                <label for="agentTime">Daily run time</label>
+                <input id="agentTime" type="time" value="18:00" />
+            </div>
+
+            <div class="form-group" id="agentMinutesGroup" style="display:none">
+                <label for="agentMinutes">Frequency</label>
+                <div class="inline" style="gap:8px">
+                    <input id="agentMinutes" inputmode="numeric" maxlength="2"
+                           style="max-width:90px" value="30" />
+                    <span class="input-help">minutes (1–99)</span>
+                </div>
+                <span class="field-error" data-for="agentMinutes"></span>
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button class="btn" id="resetAgentForm">Cancel</button>
+            <button class="btn btn-primary" id="saveAgent">
+                <i class="fa-solid fa-floppy-disk"></i>Save agent
+            </button>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+    (function ($) {
+        'use strict';
+
+        function fieldError(id, message) {
+            $('[data-for="' + id + '"]').text(message || '');
+            $('#' + id).closest('.form-group').toggleClass('has-error', !!message);
+        }
+
+        function clearErrors() {
+            $('.field-error').text('');
+            $('.form-group').removeClass('has-error');
+        }
+
+        function resetForm() {
+            clearErrors();
+            $('#agentId').val(0);
+            $('#agentName, #agentPurpose, #agentEndpoint, #agentParams').val('');
+            $('#agentActive').val('1');
+            $('#agentScheduleType').val('1').trigger('change');
+            $('#agentTime').val('18:00');
+            $('#agentMinutes').val('30');
+            $('#agentFormTitle').text('Add an agent');
+        }
+
+        $('#agentScheduleType').on('change', function () {
+            var everyMinutes = $(this).val() === '2';
+            $('#agentMinutesGroup').toggle(everyMinutes);
+            $('#agentTimeGroup').toggle(!everyMinutes);
+        });
+
+        $('#newAgentButton, #resetAgentForm').on('click', function () {
+            resetForm();
+            $('#agentName').trigger('focus');
+        });
+
+        $(document).on('click', '[data-action="edit-agent"]', function () {
+            $.getJSON('@Url.Action("Get", "Agents")', { id: $(this).data('agid') }, function (response) {
+                if (!response.success) {
+                    APS.toast(response.message, 'error');
+                    return;
+                }
+
+                var agent = response.data;
+                clearErrors();
+
+                $('#agentId').val(agent.agid);
+                $('#agentName').val(agent.agentname);
+                $('#agentPurpose').val(agent.purpose);
+                $('#agentEndpoint').val(agent.apiendpoint);
+                $('#agentParams').val(agent.apiparams);
+                $('#agentActive').val(String(agent.activestatus));
+                $('#agentScheduleType').val(String(agent.scheduletype)).trigger('change');
+                $('#agentTime').val(agent.scheduletime || '18:00');
+                $('#agentMinutes').val(agent.everyminutes || 30);
+                $('#agentFormTitle').text('Edit ' + agent.agentname);
+
+                $('html, body').animate(
+                    { scrollTop: $('#agentFormTitle').offset().top - 90 }, 220);
+            });
+        });
+
+        $(document).on('click', '[data-action="delete-agent"]', function () {
+            var agid = $(this).data('agid');
+            var name = $(this).data('name');
+
+            APS.confirmAction('Deactivate agent',
+                'Deactivating ' + name + ' stops it from being scheduled. Its execution ' +
+                'history is kept. Continue?',
+                'Deactivate',
+                function () {
+                    APS.post('@Url.Action("Delete", "Agents")', { agid: agid })
+                       .then(function (response) {
+                           if (response.success) { window.location.reload(); }
+                       });
+                });
+        });
+
+        $('#saveAgent').on('click', function () {
+            clearErrors();
+
+            var scheduleType = $('#agentScheduleType').val();
+            var params = $('#agentParams').val().trim();
+
+            if (!$('#agentName').val().trim()) {
+                fieldError('agentName', 'Agent name is required.');
+                return;
+            }
+            if (!$('#agentPurpose').val().trim()) {
+                fieldError('agentPurpose', 'Describe what this agent does.');
+                return;
+            }
+            if (!/^https?:\/\//i.test($('#agentEndpoint').val().trim())) {
+                fieldError('agentEndpoint', 'Enter an endpoint starting with http:// or https://.');
+                return;
+            }
+            if (params) {
+                try { JSON.parse(params); }
+                catch (error) {
+                    fieldError('agentParams', 'Parameters must be valid JSON.');
+                    return;
+                }
+            }
+            if (scheduleType === '2') {
+                var minutes = Number($('#agentMinutes').val());
+                if (!minutes || minutes < 1 || minutes > 99) {
+                    fieldError('agentMinutes', 'Enter a value between 1 and 99.');
+                    return;
+                }
+            }
+
+            APS.busy(this, APS.post('@Url.Action("Save", "Agents")', {
+                agid: $('#agentId').val(),
+                agentname: $('#agentName').val().trim(),
+                purpose: $('#agentPurpose').val().trim(),
+                apiendpoint: $('#agentEndpoint').val().trim(),
+                apiparams: params,
+                scheduletype: scheduleType,
+                scheduletime: $('#agentTime').val(),
+                everyminutes: $('#agentMinutes').val(),
+                activestatus: $('#agentActive').val()
+            })).then(function (response) {
+                if (!response.success) { return; }
+                APS.toast(response.message, 'success');
+                window.setTimeout(function () { window.location.reload(); }, 1000);
+            });
+        });
+    })(jQuery);
+</script>
+}

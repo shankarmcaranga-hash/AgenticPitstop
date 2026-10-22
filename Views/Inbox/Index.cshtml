@@ -1,0 +1,301 @@
+@using System.Data
+@using System.Globalization
+@{
+    ViewBag.Title = "Inbox";
+
+    var useCases = ViewBag.UseCases as DataTable ?? new DataTable();
+    var selectedUseCaseId = ViewBag.UseCaseId is int v ? v : 0;
+    var kpi = ViewBag.Kpi as DataTable ?? new DataTable();
+    var dataColumns = ViewBag.DataColumns as List<Dictionary<string, string>> ?? new List<Dictionary<string, string>>();
+    var records = ViewBag.Records as List<Dictionary<string, object>> ?? new List<Dictionary<string, object>>();
+
+    var search = Convert.ToString(ViewBag.Search) ?? string.Empty;
+    var status = Convert.ToString(ViewBag.Status) ?? "";
+    var hasFilter = !string.IsNullOrWhiteSpace(search) || !string.IsNullOrWhiteSpace(status);
+
+    var tiles = new[]
+    {
+        (Label: "Pending Review",      Icon: "fa-hourglass-half",      Tone: "warning"),
+        (Label: "Needs Clarification", Icon: "fa-circle-question",     Tone: "info"),
+        (Label: "Approved",            Icon: "fa-circle-check",        Tone: "success"),
+        (Label: "Validation Failed",   Icon: "fa-circle-exclamation",  Tone: "danger")
+    };
+
+    int KpiCount(string statusCode)
+    {
+        foreach (DataRow row in kpi.Rows)
+        {
+            var code = GetValue(row, "ReviewStatusCode");
+            if (string.IsNullOrWhiteSpace(code))
+                code = GetValue(row, "Status");
+
+            if (!string.Equals(code, statusCode, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (int.TryParse(GetValue(row, "RecordCount"), out var count))
+                return count;
+        }
+        return 0;
+    }
+}
+
+<link rel="stylesheet" href="~/css/inbox.css" asp-append-version="true" />
+
+<div class="card ib-header">
+    <div class="ib-header-main">
+        <div class="ib-title">
+            <span class="ib-title-icon"><i class="fa-solid fa-inbox"></i></span>
+            <div>
+                <h1>Inbox</h1>
+                <p>Review inflow records and record a decision for each one.</p>
+            </div>
+        </div>
+        <div class="ib-usecase">
+            <label for="useCaseId">Use case</label>
+            <select id="useCaseId">
+                <option value="0">Select a use case</option>
+                @foreach (DataRow useCase in useCases.Rows)
+                {
+                    var idText = GetValue(useCase, "UseCaseID");
+                    var name = GetValue(useCase, "UseCaseName");
+                    <option value="@idText" selected="@(idText == selectedUseCaseId.ToString())">@name</option>
+                }
+            </select>
+        </div>
+    </div>
+</div>
+
+@if (selectedUseCaseId == 0)
+{
+    <div class="card ib-empty">
+        <i class="fa-solid fa-list-check"></i>
+        <strong>Choose a use case to start</strong>
+        <span>Records are grouped by use case. Pick one above to see its inbox.</span>
+    </div>
+}
+else if (dataColumns.Count == 0)
+{
+    <div class="card ib-empty">
+        <i class="fa-solid fa-table-columns"></i>
+        <strong>No columns to show</strong>
+        <span>This use case has no active template yet. An administrator needs to set one up in Configuration.</span>
+    </div>
+}
+else
+{
+    <div class="ib-kpis">
+        @foreach (var t in tiles)
+        {
+            var active = string.Equals(status, t.Label, StringComparison.OrdinalIgnoreCase);
+            <a class="ib-kpi ib-kpi-@t.Tone @(active ? "is-active" : "")"
+               asp-action="Index"
+               asp-route-useCaseId="@selectedUseCaseId"
+               asp-route-status="@(active ? null : t.Label)"
+               asp-route-search="@(string.IsNullOrWhiteSpace(search) ? null : search)"
+               title="@(active ? "Show all statuses" : "Show only " + t.Label)">
+                <span class="ib-kpi-icon"><i class="fa-solid @t.Icon"></i></span>
+                <span class="ib-kpi-text">
+                    <span>@t.Label</span>
+                    <strong>@KpiCount(t.Label).ToString("N0")</strong>
+                </span>
+            </a>
+        }
+    </div>
+
+    <section class="card ib-card">
+        <form method="get" asp-action="Index" class="ib-toolbar">
+            <input type="hidden" name="useCaseId" value="@selectedUseCaseId" />
+            <div class="ib-search">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="search" name="search" value="@search" placeholder="Search records" aria-label="Search records" />
+            </div>
+            <select name="status" id="statusFilter" aria-label="Filter by status">
+                <option value="" selected="@string.IsNullOrWhiteSpace(status)">All statuses</option>
+                @foreach (var s in new[] { "Pending Review", "Needs Clarification", "Approved", "Validation Failed", "Rejected" })
+                {
+                    <option value="@s" selected="@(status == s)">@s</option>
+                }
+            </select>
+            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-magnifying-glass"></i>Search</button>
+            @if (hasFilter)
+            {
+                <a class="btn" asp-action="Index" asp-route-useCaseId="@selectedUseCaseId">
+                    <i class="fa-solid fa-xmark"></i>Clear filters
+                </a>
+            }
+            <span class="ib-count"><strong>@records.Count.ToString("N0")</strong> record@(records.Count == 1 ? "" : "s")</span>
+        </form>
+
+        @if (records.Count == 0)
+        {
+            <div class="ib-none">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <strong>No records found</strong>
+                <span>@(hasFilter ? "Try a different search or status." : "Records appear here once a file is uploaded on the Inflow screen.")</span>
+            </div>
+        }
+        else
+        {
+            <div class="ib-grid">
+                <table id="ibTable">
+                    <thead>
+                        <tr>
+                            <th data-sort-index="0">ID<i class="fa-solid fa-sort"></i></th>
+                            @for (var c = 0; c < dataColumns.Count; c++)
+                            {
+                                <th data-sort-index="@(c + 1)">@(dataColumns[c].TryGetValue("DisplayName", out var d) ? d : "")<i class="fa-solid fa-sort"></i></th>
+                            }
+                            <th data-sort-index="@(dataColumns.Count + 1)">Status<i class="fa-solid fa-sort"></i></th>
+                            <th class="ib-right"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in records)
+                        {
+                            row.TryGetValue("InflowDataID", out var id);
+                            row.TryGetValue("ReviewStatusCode", out var reviewStatus);
+                            var reviewStatusText = Convert.ToString(reviewStatus) ?? "";
+                            var href = Url.Action("Detail", new { id });
+
+                            <tr data-href="@href" tabindex="0">
+                                <td data-sort="@id" class="ib-id">#@id</td>
+                                @foreach (var col in dataColumns)
+                                {
+                                    var key = col.TryGetValue("FieldCode", out var f) ? f : "";
+                                    var header = col.TryGetValue("DisplayName", out var h) ? h : key;
+                                    var raw = row.TryGetValue(key, out var value) ? Convert.ToString(value) ?? "" : "";
+                                    <td data-sort="@raw">@FormatCell(header, raw)</td>
+                                }
+                                <td data-sort="@reviewStatusText"><span class="@BadgeFor(reviewStatusText)">@reviewStatusText</span></td>
+                                <td class="ib-right">
+                                    <a class="btn btn-sm ib-review" href="@href">Review<i class="fa-solid fa-arrow-right"></i></a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="ib-pager" id="ibPager"></div>
+        }
+    </section>
+}
+
+@functions {
+    private static string GetValue(DataRow row, string name)
+    {
+        var col = row.Table.Columns.Cast<DataColumn>()
+            .FirstOrDefault(c => string.Equals(c.ColumnName, name, StringComparison.OrdinalIgnoreCase));
+        if (col == null || row[col] == DBNull.Value) return string.Empty;
+        return Convert.ToString(row[col]) ?? string.Empty;
+    }
+
+    private static string BadgeFor(string status)
+    {
+        var value = (status ?? string.Empty).ToLowerInvariant();
+        if (value.Contains("approve")) return "badge badge-success";
+        if (value.Contains("clarif")) return "badge badge-info";
+        if (value.Contains("pending")) return "badge badge-warning";
+        if (value.Contains("reject") || value.Contains("fail")) return "badge badge-danger";
+        return "badge badge-neutral";
+    }
+
+    /// <summary>Excel keeps dates as serial numbers; show them as dates in date columns.</summary>
+    private static string FormatCell(string header, string raw)
+    {
+        if (!string.IsNullOrEmpty(header) &&
+            header.Contains("date", StringComparison.OrdinalIgnoreCase) &&
+            double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var serial) &&
+            serial > 20000 && serial < 80000)
+        {
+            return DateTime.FromOADate(serial).ToString("dd MMM yyyy", CultureInfo.InvariantCulture);
+        }
+        return raw;
+    }
+}
+
+@section Scripts {
+    <script nonce="@Context.ApsNonce()">
+        (function ($) {
+            'use strict';
+
+            // --- filters ------------------------------------------------------------
+            $('#useCaseId').on('change', function () {
+                window.location.href = '@Url.Action("Index", "Inbox")?useCaseId=' + encodeURIComponent($(this).val() || '0');
+            });
+
+            $('#statusFilter').on('change', function () { this.form.submit(); });
+
+            // --- open a record by clicking or pressing Enter on its row ---------------
+            $('#ibTable').on('click', 'tbody tr[data-href]', function (e) {
+                if ($(e.target).closest('a, button').length) { return; }
+                window.location.href = $(this).attr('data-href');
+            }).on('keydown', 'tbody tr[data-href]', function (e) {
+                if (e.key === 'Enter') { window.location.href = $(this).attr('data-href'); }
+            });
+
+            // --- sorting and paging ------------------------------------------------------
+            var $body = $('#ibTable tbody');
+            if (!$body.length) { return; }
+
+            var rows = $body.children('tr').toArray();
+            var page = 0, size = 25, sortCol = -1, sortDir = 1;
+            var numeric = /^-?\d+(\.\d+)?$/;
+
+            function key(tr) {
+                var cell = tr.cells[sortCol];
+                return cell ? (cell.getAttribute('data-sort') || cell.textContent || '').trim() : '';
+            }
+
+            function draw() {
+                var ordered = sortCol < 0 ? rows : rows.slice().sort(function (a, b) {
+                    var x = key(a), y = key(b);
+                    if (numeric.test(x) && numeric.test(y)) { return (parseFloat(x) - parseFloat(y)) * sortDir; }
+                    return x.localeCompare(y, undefined, { sensitivity: 'base' }) * sortDir;
+                });
+
+                var pages = Math.max(1, Math.ceil(ordered.length / size));
+                page = Math.min(page, pages - 1);
+                var start = page * size;
+
+                $body.append(ordered);
+                ordered.forEach(function (tr, i) { tr.hidden = i < start || i >= start + size; });
+
+                $('#ibPager').html(
+                    '<span>Showing <strong>' + (ordered.length ? start + 1 : 0) + '–' + Math.min(ordered.length, start + size) +
+                    '</strong> of <strong>' + ordered.length + '</strong></span>' +
+                    '<div class="ib-pager-controls">' +
+                        '<label>Rows per page <select id="ibSize">' + [25, 50, 100].map(function (n) {
+                            return '<option value="' + n + '"' + (n === size ? ' selected' : '') + '>' + n + '</option>';
+                        }).join('') + '</select></label>' +
+                        '<button type="button" class="btn btn-sm" data-page="-1"' + (page === 0 ? ' disabled' : '') + ' aria-label="Previous page">' +
+                            '<i class="fa-solid fa-chevron-left"></i></button>' +
+                        '<span class="ib-page">Page ' + (page + 1) + ' of ' + pages + '</span>' +
+                        '<button type="button" class="btn btn-sm" data-page="1"' + (page >= pages - 1 ? ' disabled' : '') + ' aria-label="Next page">' +
+                            '<i class="fa-solid fa-chevron-right"></i></button>' +
+                    '</div>');
+            }
+
+            $('#ibTable thead').on('click', 'th[data-sort-index]', function () {
+                var col = Number($(this).attr('data-sort-index'));
+                sortDir = col === sortCol ? -sortDir : 1;
+                sortCol = col;
+                page = 0;
+
+                $('#ibTable thead th').removeClass('is-sorted').find('i').attr('class', 'fa-solid fa-sort');
+                $(this).addClass('is-sorted').find('i').attr('class', 'fa-solid ' + (sortDir === 1 ? 'fa-sort-up' : 'fa-sort-down'));
+                draw();
+            });
+
+            $('#ibPager').on('click', '[data-page]', function () {
+                page += Number($(this).attr('data-page'));
+                draw();
+            }).on('change', '#ibSize', function () {
+                size = Number($(this).val());
+                page = 0;
+                draw();
+            });
+
+            draw();
+        })(jQuery);
+    </script>
+}

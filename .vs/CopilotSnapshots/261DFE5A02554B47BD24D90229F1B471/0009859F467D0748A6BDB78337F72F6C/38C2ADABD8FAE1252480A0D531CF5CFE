@@ -1,0 +1,242 @@
+﻿@{
+    var questions = ViewBag.ChecklistQuestions as DataTable ?? new DataTable();
+}
+<div class="card checklist-screen">
+    <div class="card-header"><div class="card-title-row"><div><h2 class="card-title screen-title">Checklist Master</h2><p class="card-subtitle">Create reusable checklist questions and define which source(s) are applicable to each question.</p></div><div class="page-actions"><button class="btn" type="button">Manage Categories</button><button class="btn btn-primary" id="addQuestion"><i class="fa-solid fa-plus"></i>Add Question</button></div></div></div><div class="card-body">
+        <div class="report-info source-stats"><div><span>Total questions</span><strong>@questions.Rows.Count</strong><small>Configured in checklist master</small></div><div><span>Multi-source questions</span><strong>0</strong><small>Need evidence from 2+ sources</small></div><div><span>Categories</span><strong>7</strong><small>Business grouping / applicability</small></div></div><div class="section-title-row" style="margin-top:22px"><div><h3 class="card-title">Checklist Questions</h3><p class="card-subtitle">Instruction prompt tells the agent what to evaluate. Business rules prompt defines PASS/FAIL/N/A or other decision rules.</p></div></div><div class="toolbar"><input id="questionSearch" type="search" placeholder="Search question, category, source..." /><select><option>All categories</option></select><select><option>All statuses</option></select></div><div class="table-wrap">
+            <table>
+                <thead><tr><th>#</th><th>Question / Category</th><th>Source Applicability</th><th>Instruction Prompt</th><th>Business Rules Prompt</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                    @foreach (DataRow question in questions.Rows)
+                    {
+                        <tr><td>@ApsMetadata.Cell(question, "questionid")</td><td><strong>@ApsMetadata.Cell(question, "question")</strong><small>@ApsMetadata.Cell(question, "category")</small></td><td class="source-availability-cell">@(ApsMetadata.Cell(question, "sourceavailability").Length > 0 ? ApsMetadata.Cell(question, "sourceavailability") : (ApsMetadata.Cell(question, "sourceapplicability").Length > 0 ? ApsMetadata.Cell(question, "sourceapplicability") : ApsMetadata.Cell(question, "sources")))</td><td>@ApsMetadata.Cell(question, "instructionprompt")</td><td>@ApsMetadata.Cell(question, "businessrulesprompt")</td><td><span class="badge badge-success">Active</span></td><td><button type="button" class="btn btn-sm edit-question">Edit</button><button type="button" class="btn btn-sm clone-question">Clone</button><button type="button" class="btn btn-sm btn-danger delete-question">Delete</button></td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<div id="questionModal" class="modal" hidden>
+    <div class="modal-card">
+        <div class="card-header">
+            <div class="card-title-row">
+                <h2 class="card-title">Add Checklist Question</h2>
+                <button type="button" class="btn btn-sm close-question">×</button>
+            </div>
+        </div>
+        <div class="card-body">
+            <input id="questionId" type="hidden" />
+            <div class="form-grid">
+                <div class="form-group full">
+                    <label for="questionText">Question</label>
+                    <textarea id="questionText"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="questionCategory">Category</label>
+                    <select id="questionCategory" class="form-control">
+                        <option value="Product">Product</option>
+                        <option value="Eligibility">Eligibility</option>
+                        <option value="Identity">Identity</option>
+                        <option value="Documentation">Documentation</option>
+                        <option value="Financial">Financial</option>
+                        <option value="Compilance">Compilance</option>
+                        <option value="Operational Control">Operational Control</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="questionStatus">Status</label>
+                    <select id="questionStatus" class="form-control">
+                        <option value="Active">Active</option>
+                        <option value="Inactive">Inactive</option>
+                    </select>
+                </div>
+
+                <div class="form-group full">
+                    <label class="field-label">
+                        Source Applicability <span class="required">*</span>
+                    </label>
+                    <div class="source-dropdown-container">
+                        <div class="source-dropdown-header">
+                            <span id="sourceSelectionText">Select one or more sources</span>
+                            <span class="dropdown-arrow">⌄</span>
+                        </div>
+
+                        <div class="source-list">
+                            <div class="source-item">
+                                <input type="checkbox" id="coreApp" value="CORE_APP_API" class="question-source" />
+                                <label for="coreApp">
+                                    <div class="source-title">Core Business Application</div>
+                                    <div class="source-subtitle">
+                                        Application API · CORE_APP_API
+                                    </div>
+                                </label>
+                            </div>
+
+                            <div class="source-item">
+                                <input type="checkbox" id="docRepo" value="DOC_REPOSITORY" class="question-source" />
+                                <label for="docRepo">
+                                    <div class="source-title">Document Repository</div>
+                                    <div class="source-subtitle">
+                                        Document Repository · DOC_REPOSITORY
+                                    </div>
+                                </label>
+                            </div>
+
+                            <div class="source-item">
+                                <input type="checkbox" id="visionAgent" value="VISION_AGENT" class="question-source" />
+                                <label for="visionAgent">
+                                    <div class="source-title">Vision Extraction Agent</div>
+                                    <div class="source-subtitle">
+                                        Vision / Document AI · VISION_AGENT
+                                    </div>
+                                </label>
+                            </div>
+
+                            <div class="source-item">
+                                <input type="checkbox" id="workNotes" value="WORK_NOTES" class="question-source" />
+                                <label for="workNotes">
+                                    <div class="source-title">Operational Work Notes</div>
+                                    <div class="source-subtitle">
+                                        Application API · WORK_NOTES
+                                    </div>
+                                </label>
+                            </div>
+                            <div class="source-item">
+                                <input type="checkbox" id="userInput" value="USER_INPUT" class="question-source" />
+                                <label for="userInput">
+                                    <div class="source-title">User Review Input</div>
+                                    <div class="source-subtitle">
+                                        Manual / User Input · USER_INPUT
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                    <div id="selectedSourceNames" class="selected-source-names"></div>
+                    <small class="input-help">A question can require multiple sources, such as core application + document extraction + work notes.</small>
+                    </div>
+                </div>
+                <div class="form-group full">
+                    <label for="instructionPrompt">Instruction Prompt</label>
+                    <textarea id="instructionPrompt"></textarea>
+                </div>
+                <div class="form-group full">
+                    <label for="businessRulesPrompt">Business Rules Prompt</label>
+                    <textarea id="businessRulesPrompt"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="questionOutputType">Output Type</label>
+                    <select id="questionOutputType" class="form-control">
+                        <option value="1">PASS / FAIL / Not Applicable</option>
+                        <option value="2">Yes / No /UnKnown</option>
+                        <option value="3">Text Explanation</option>
+                        <option value="4">Structured JSON</option>
+                        <option value="5">Source / Rating</option>
+                        <option value="6">Custom</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="displayOrder">Display Order</label>
+                    <input type="number"
+                           id="displayOrder"
+                           min="0"
+                           step="1"
+                           value="0"
+                           class="form-control">
+                </div>
+                <div class="form-group full">
+                    <label for="questionnotes">Developer Notes</label>
+                    <textarea id="questionnotes" placeholder="Source codes separated by comma"></textarea>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button class="btn close-question" type="button">Cancel</button>
+                <button class="btn btn-primary" id="saveQuestion" type="button">Save Question</button>
+            </div>
+        </div>
+    </div>
+    <script nonce="@Context.ApsNonce()">(window.apsReady = window.apsReady || []).push(function ($) { function show(mode, row) { $('#questionModal').removeAttr('hidden'); $('#questionModal .card-title').text(mode === 'edit' ? 'Edit Checklist Question' : 'Add Checklist Question'); $('#questionId').val(row ? row.find('td').eq(0).text().trim() : 0); $('#questionText').val(row ? row.find('td').eq(1).find('strong').text() : ''); $('#questionCategory').val(row ? row.find('td').eq(1).find('small').text() : 'Product'); $('#questionSources').val(row ? row.find('td').eq(2).text() : ''); $('#instructionPrompt').val(row ? row.find('td').eq(3).text() : ''); $('#businessRulesPrompt').val(row ? row.find('td').eq(4).text() : ''); $('.question-source').prop('checked', false); if (row) { var selected = row.find('td').eq(2).text().split(',').map(function (item) { return item.trim(); }); $('.question-source').each(function () { $(this).prop('checked', selected.indexOf(this.value) >= 0); }); } updateSelectedSources(); $('#questionText').trigger('focus'); } function close() { $('#questionModal').attr('hidden', 'hidden'); } function field(record, names) {
+        for (var i = 0; i < names.length; i++) {
+            var key = Object.keys(record || {}).filter(function (candidate) { return candidate.toLowerCase() === names[i].toLowerCase(); })[0];
+            if (key && record[key] !== null) return record[key];
+        }
+        return '';
+    }
+    function populateQuestion(record) {
+        $('#questionId').val(field(record, ['questionid', 'id']));
+        $('#questionText').val(field(record, ['question']));
+        $('#questionCategory').val(field(record, ['category']));
+        $('#instructionPrompt').val(field(record, ['instructionprompt']));
+        $('#businessRulesPrompt').val(field(record, ['businessrulesprompt']));
+        $('#questionOutputType').val(field(record, ['outputtype']));
+        $('#displayOrder').val(field(record, ['displayorder', 'sortorder']));
+        $('#questionnotes').val(field(record, ['questionnotes', 'developernotes', 'notes']));
+        $('.question-source').prop('checked', false);
+        var rawSources = field(record, ['sources', 'sourceavailability', 'sourceapplicability']);
+        var selected;
+        try { selected = Array.isArray(rawSources) ? rawSources : JSON.parse(rawSources || '[]'); }
+        catch (e) { selected = String(rawSources || '').split(','); }
+        if (!Array.isArray(selected)) selected = [selected];
+        selected = selected.map(function (item) {
+            if (item && typeof item === 'object') return String(item.sourcecode || item.code || item.value || item.sourcename || '').trim();
+            return String(item).trim().replace(/^"|"$/g, '');
+        });
+        $('.question-source').each(function () {
+            var code = this.value, title = $(this).closest('.source-item').find('.source-title').text().trim();
+            $(this).prop('checked', selected.indexOf(code) >= 0 || selected.indexOf(title) >= 0);
+        });
+        updateSelectedSources();
+    }
+    $(document).on('click', '#addQuestion', function (e) { e.preventDefault(); show('add'); }); $(document).on('click', '.close-question', close); $(document).on('click', '.edit-question', function () { var id = $(this).closest('tr').find('td').eq(0).text().trim(); $.get('@Url.Action("ChecklistQuestion", "Configuration")', { questionid: id }).done(function (response) { if (response.success) { show('edit'); populateQuestion(response.data); } else APS.toast(response.message || 'Checklist question could not be loaded.', 'error'); }).fail(function () { APS.toast('Checklist question could not be loaded.', 'error'); }); }); $('#saveQuestion').on('click', function () { var selectedSources = $('.question-source:checked').map(function () { return this.value; }).get(); APS.post('@Url.Action("SaveChecklistQuestion", "Configuration")', { questionid: $('#questionId').val(), category: $('#questionCategory').val(), question: $('#questionText').val(), instructionprompt: $('#instructionPrompt').val(), businessrulesprompt: $('#businessRulesPrompt').val(), sourcesJson: JSON.stringify(selectedSources) , outputtype: $('#questionOutputType').val() , displayorder: $('#displayOrder').val() , developernotes: $('#questionnotes').val() }).then(function (r) { if (r.success) window.location.reload(); }); }); $(document).on('click', '.delete-question', function () { if (!confirm('Deactivate this question?')) return; APS.post('@Url.Action("DeleteChecklistQuestion", "Configuration")', { questionid: $(this).closest('tr').find('td').eq(0).text() }).then(function (r) { if (r.success) window.location.reload(); }); }); $(document).on('click', '.clone-question', function () {
+        if (!confirm('Clone this checklist question?')) return;
+        APS.post('@Url.Action("CloneChecklistQuestion", "Configuration")', { questionid: $(this).closest('tr').find('td').eq(0).text().trim() }).then(function (response) {
+            if (response.success) window.location.reload();
+        });
+    });
+    $('#questionSearch').on('input', function () { var q = $(this).val().toLowerCase(); $('.checklist-screen table tbody tr').each(function () { $(this).toggle($(this).text().toLowerCase().indexOf(q) >= 0); }); }); $(document).on('click', '#questionModal .source-dropdown-header', function (event) { event.preventDefault(); var $list = $(this).closest('.source-dropdown-container').find('.source-list'); $list.stop(true, true).slideToggle(150); $(this).find('.dropdown-arrow').toggleClass('rotate'); }); function updateSelectedSources() { var selected = $('.question-source:checked').map(function () { return { code: this.value, name: $(this).closest('.source-item').find('.source-title').text().trim() }; }).get(); $('#sourceSelectionText').text(selected.length ? selected.length + ' source' + (selected.length === 1 ? '' : 's') + ' selected' : 'Select one or more sources'); $('#selectedSourceNames').html(selected.map(function (source) { return '<span class="selected-source-badge">' + APS.escapeHtml(source.name) + '</span>'; }).join('')); } $(document).on('change', '.question-source', updateSelectedSources); function formatGridSourceAvailability() {
+        var sourceNames = {};
+        $('.question-source').each(function () { sourceNames[this.value] = $(this).closest('.source-item').find('.source-title').text().trim(); });
+        $('.checklist-screen table tbody tr').each(function () {
+            var $cell = $(this).find('td').eq(2), raw = $cell.text().trim(), selected;
+            try { selected = JSON.parse(raw || '[]'); } catch (e) { selected = raw.split(','); }
+            if (!Array.isArray(selected)) selected = [selected];
+            var badges = selected.map(function (item) { var code = item && typeof item === 'object' ? (item.sourcecode || item.code || item.value) : String(item).trim(); return sourceNames[code] || code; }).filter(Boolean);
+            $cell.html(badges.map(function (name) { return '<span class="selected-source-badge">' + APS.escapeHtml(name) + '</span>'; }).join(' '));
+        });
+    }
+    formatGridSourceAvailability();
+});</script>
+    <style>
+        .source-dropdown-header {
+            align-items: center;
+            display: flex;
+            min-height: 64px;
+        }
+
+        .selected-source-names {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .selected-source-badge {
+            background: #fff3e4;
+            border-radius: 999px;
+            color: #b84d00;
+            font-size: 16px;
+            font-weight: 700;
+            padding: 8px 13px;
+            display: inline-block;
+            margin: 2px;
+            max-width: 100%;
+            white-space: normal;
+            overflow-wrap: anywhere;
+        }
+
+        .source-availability-cell { min-width: 180px; white-space: normal; overflow-wrap: anywhere; }
+
+            .selected-source-badge:nth-child(2n) {
+                background: #e8f1ff;
+                color: #1457d9;
+            }
+    </style>

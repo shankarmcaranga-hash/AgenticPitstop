@@ -1,0 +1,134 @@
+@{
+    ViewBag.Title = "Configuration";
+
+    var tab = (string)(ViewBag.Tab ?? "inflow-source");
+    var history = (DataTable)ViewBag.History;
+
+    var steps = new[]
+    {
+        ("inflow-source", "01 · Inflow",   "Define how work enters PITSTOP",  "1. Inflow Source"),
+        ("collections",   "02 · Data model","Collections and dynamic fields", "2. Collections & Fields"),
+        ("inbox-setup",   "03 · Inbox",     "Choose visible inflow columns",  "3. Inbox Setup"),
+        ("detail-setup",  "04 · Review",    "Compose the detail experience",  "4. Detail Setup"),
+        ("report-config", "05 · Reports",   "Define report metadata and access", "5. Report Configuration")
+        ,("source-registry", "06 · Sources", "Register evidence sources", "6. Source Registry")
+        ,("checklist", "07 · Checklist", "Manage checklist questions", "7. Checklist Master")
+    };
+
+    ViewData["PageTitle"] = "Configuration workspace";
+    ViewData["PageSubtitle"] = "Extend portal behaviour through configuration instead of changing core UI code.";
+    ViewData["PageBreadcrumb"] = "Administration / Configuration";
+        ViewData["PageActions"] =
+        "<button class=\"btn\" id=\"openPreview\">" +
+        "<i class=\"fa-solid fa-up-right-from-square\"></i>Preview</button>" +
+        "<button class=\"btn\" id=\"refreshPreview\" disabled>" +
+        "<i class=\"fa-solid fa-rotate\"></i>Refresh preview</button>" +
+        "<button class=\"btn\" id=\"showHistoryButton\">" +
+        "<i class=\"fa-solid fa-clock-rotate-left\"></i>Configuration history</button>";
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+
+
+<div class="tabs">
+    @foreach (var (key, _, _, label) in steps)
+    {
+        <a class="tab-button @(tab == key ? "active" : "")"
+           asp-action="Index" asp-route-tab="@key">@label</a>
+    }
+</div>
+
+<div id="configPanel">
+    @switch (tab)
+    {
+        case "collections":
+            @await Html.PartialAsync("_Collections")
+            break;
+        case "inbox-setup":
+            @await Html.PartialAsync("_InboxSetup")
+            break;
+        case "detail-setup":
+            @await Html.PartialAsync("_DetailSetup")
+            break;
+        case "report-config":
+            @await Html.PartialAsync("_ReportConfiguration")
+            break;
+        case "source-registry":
+            @await Html.PartialAsync("_SourceRegistry")
+            break;
+        case "checklist":
+            @await Html.PartialAsync("_Checklistquestion")
+            break;
+        default:
+            @await Html.PartialAsync("_InflowSource")
+            break;
+    }
+</div>
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+    (function ($) {
+        'use strict';
+                // One preview tab is reused. Opening a second would let two windows show
+        // different configuration states, which is what the feature exists to prevent.
+        var previewWindow = null;
+        var previewUrl = '@Url.Action("Preview", "Configuration")';
+
+        function previewIsOpen() {
+            return previewWindow && !previewWindow.closed;
+        }
+
+        $('#openPreview').on('click', function () {
+            if (previewIsOpen()) {
+                previewWindow.focus();
+                return;
+            }
+            previewWindow = window.open(previewUrl, 'apsConfigPreview');
+            $('#refreshPreview').prop('disabled', false);
+        });
+
+        $('#refreshPreview').on('click', function () {
+            if (!previewIsOpen()) {
+                APS.toast('The preview tab was closed. Open it again.', 'error');
+                $(this).prop('disabled', true);
+                return;
+            }
+            previewWindow.location.reload();
+            previewWindow.focus();
+            APS.toast('Preview refreshed.', 'success');
+        });
+
+        // A closed tab must not leave Refresh enabled and lying.
+        window.setInterval(function () {
+            if (!previewIsOpen()) {
+                $('#refreshPreview').prop('disabled', true);
+            }
+        }, 2000);
+        var history = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+            ApsMetadata.ToList(history).Select(h => new {
+                item = h["configitem"],
+                detail = h["detail"],
+                by = h["actionby"],
+                at = Convert.ToDateTime(h["actiondt"]).ToString("dd MMM yyyy · HH:mm")
+            })));
+
+        $('#showHistoryButton').on('click', function () {
+            if (!history.length) {
+                APS.toast('No configuration changes have been recorded yet.', 'info');
+                return;
+            }
+
+            var rows = history.map(function (entry) {
+                return '<li><strong>' + APS.escapeHtml(entry.item) + '</strong>' +
+                       '<span>' + APS.escapeHtml(entry.detail || '') + ' · ' +
+                       APS.escapeHtml(entry.by) + ' · ' + APS.escapeHtml(entry.at) + '</span></li>';
+            }).join('');
+
+            APS.openModal('Configuration history',
+                '<ul class="timeline">' + rows + '</ul>',
+                '<button class="btn" data-modal-close>Close</button>');
+        });
+    })(jQuery);
+</script>
+}

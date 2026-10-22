@@ -1,0 +1,95 @@
+/* ===========================================================================
+   Inflow configuration — right-hand preview, versions and diff
+
+   APPEND THIS TO wwwroot/css/site.css, or reference it from _Layout.
+   Without it .inflow-split has no grid, so the preview falls to the bottom of
+   the page instead of sitting beside the form. That is the single most likely
+   reason the layout looks unchanged after swapping the partial.
+   =========================================================================== */
+
+/* --- two columns: form left, preview right -------------------------------- */
+.inflow-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(360px, .75fr);
+  gap: 16px;
+  align-items: start;
+}
+
+/* The preview follows as the form is scrolled, so a change made low in the
+   form is still visible in its effect. */
+.inflow-preview { position: sticky; top: 16px; }
+
+/* Hidden entirely in API mode: there is no reviewer upload screen to preview
+   when work arrives automatically. */
+.inflow-split.api-mode { grid-template-columns: 1fr; }
+.inflow-split.api-mode .inflow-preview { display: none; }
+
+/* --- preview frame -------------------------------------------------------- */
+.inflow-preview-frame {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px;
+  background: #fbfdff;
+  margin-top: 12px;
+}
+
+.inflow-preview-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #64748b;
+  margin: 14px 0 6px;
+}
+
+.inflow-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  padding: 26px 16px;
+  border: 2px dashed #cbd5e1;
+  border-radius: 9px;
+  background: #fff;
+}
+.inflow-dropzone i { font-size: 24px; color: #475569; }
+.inflow-dropzone strong { font-size: 15px; }
+.inflow-dropzone span { font-size: 11px; color: #64748b; }
+
+.inflow-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* The preview grid can be wider than its column, so it scrolls on its own
+   rather than pushing the page sideways. */
+.inflow-preview-frame .table-wrap { overflow-x: auto; }
+.inflow-preview-frame table { font-size: 12px; }
+.inflow-preview-frame th { white-space: nowrap; }
+
+/* A ghost row says "this is a shape, not data" without looking like a load
+   that failed. */
+.inflow-ghost td {
+  height: 30px;
+  background: repeating-linear-gradient(
+    45deg, #f8fafc, #f8fafc 6px, #f1f5f9 6px, #f1f5f9 12px);
+}
+
+/* --- column diff ---------------------------------------------------------- */
+.inflow-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  margin: 10px 0;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 12px;
+}
+.inflow-diff-add { color: #15803d; }
+.inflow-diff-remove { color: #b91c1c; }
+
+.mono { font-family: ui-monospace, Consolas, Monaco, monospace; font-size: 12px; }
+
+@media (max-width: 1180px) {
+  .inflow-split { grid-template-columns: 1fr; }
+  .inflow-preview { position: static; }
+}

@@ -1,0 +1,181 @@
+is_global = true
+build_property.TargetFramework = net8.0
+build_property.TargetPlatformMinVersion = 
+build_property.UsingMicrosoftNETSdkWeb = true
+build_property.ProjectTypeGuids = 
+build_property.InvariantGlobalization = 
+build_property.PlatformNeutralAssembly = 
+build_property.EnforceExtendedAnalyzerRules = 
+build_property._SupportedPlatformList = Linux,macOS,Windows
+build_property.RootNamespace = AgenticPitstop
+build_property.RootNamespace = AgenticPitstop
+build_property.ProjectDir = D:\ArulGnanaPragasam\MVC Migration\ApiConfigurator\APS - V8\APS -  V8\AgenticPitstop\
+build_property.EnableComHosting = 
+build_property.EnableGeneratedComInterfaceComImportInterop = 
+build_property.RazorLangVersion = 8.0
+build_property.SupportLocalizedComponentNames = 
+build_property.GenerateRazorMetadataSourceChecksumAttributes = 
+build_property.MSBuildProjectDirectory = D:\ArulGnanaPragasam\MVC Migration\ApiConfigurator\APS - V8\APS -  V8\AgenticPitstop
+build_property._RazorSourceGeneratorDebug = 
+build_property.EffectiveAnalysisLevelStyle = 8.0
+build_property.EnableCodeStyleSeverity = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Agents/Monitor.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQWdlbnRzXE1vbml0b3IuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Agents/Scheduler.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQWdlbnRzXFNjaGVkdWxlci5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/ApiConfig/ApiConfig.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQXBpQ29uZmlnXEFwaUNvbmZpZy5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Configuration/Configuration_Index.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ29uZmlndXJhdGlvblxDb25maWd1cmF0aW9uX0luZGV4LmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Configuration/Index.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ29uZmlndXJhdGlvblxJbmRleC5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Configuration/Preview.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ29uZmlndXJhdGlvblxQcmV2aWV3LmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Configuration/_Checklistquestion.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ29uZmlndXJhdGlvblxfQ2hlY2tsaXN0cXVlc3Rpb24uY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Configuration/_Collections.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ29uZmlndXJhdGlvblxfQ29sbGVjdGlvbnMuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Configuration/_DetailSetup.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ29uZmlndXJhdGlvblxfRGV0YWlsU2V0dXAuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Configuration/_InboxSetup.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ29uZmlndXJhdGlvblxfSW5ib3hTZXR1cC5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Configuration/_InflowSource.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ29uZmlndXJhdGlvblxfSW5mbG93U291cmNlLmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Configuration/_ReportConfiguration.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ29uZmlndXJhdGlvblxfUmVwb3J0Q29uZmlndXJhdGlvbi5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Configuration/_SourceRegistry.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ29uZmlndXJhdGlvblxfU291cmNlUmVnaXN0cnkuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/FileRoots/Index.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcRmlsZVJvb3RzXEluZGV4LmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Home/Denied.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSG9tZVxEZW5pZWQuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Home/SessionExpired.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSG9tZVxTZXNzaW9uRXhwaXJlZC5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Inbox/Detail.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSW5ib3hcRGV0YWlsLmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Inbox/Detail_Backup.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSW5ib3hcRGV0YWlsX0JhY2t1cC5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Inbox/inbox_Index.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSW5ib3hcaW5ib3hfSW5kZXguY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Inbox/Index.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSW5ib3hcSW5kZXguY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Inbox/_DetailContent.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSW5ib3hcX0RldGFpbENvbnRlbnQuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Inflow/Index.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSW5mbG93XEluZGV4LmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Inflow/Inflow_Index.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSW5mbG93XEluZmxvd19JbmRleC5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Masters/ClientMaster.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcTWFzdGVyc1xDbGllbnRNYXN0ZXIuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Masters/UseCaseMapping.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcTWFzdGVyc1xVc2VDYXNlTWFwcGluZy5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Masters/UseCaseMaster.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcTWFzdGVyc1xVc2VDYXNlTWFzdGVyLmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Pipeline/Index.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUGlwZWxpbmVcSW5kZXguY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Reports/Index.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUmVwb3J0c1xJbmRleC5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Reports/Reports_Index.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUmVwb3J0c1xSZXBvcnRzX0luZGV4LmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Shared/Error.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXEVycm9yLmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Shared/_EmptyState.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXF9FbXB0eVN0YXRlLmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Shared/_Layout.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXF9MYXlvdXQuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Shared/_PageHeader.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXF9QYWdlSGVhZGVyLmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Shared/_PreviewEmpty.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXF9QcmV2aWV3RW1wdHkuY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Shared/_PreviewLayout.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2hhcmVkXF9QcmV2aWV3TGF5b3V0LmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/SopAnalyzer/Index.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU29wQW5hbHl6ZXJcSW5kZXguY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Users/Index.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcVXNlcnNcSW5kZXguY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/Users/Users_index.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcVXNlcnNcVXNlcnNfaW5kZXguY3NodG1s
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/_ViewImports.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcX1ZpZXdJbXBvcnRzLmNzaHRtbA==
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/ArulGnanaPragasam/MVC Migration/ApiConfigurator/APS - V8/APS -  V8/AgenticPitstop/Views/_ViewStart.cshtml]
+build_metadata.AdditionalFiles.TargetPath = Vmlld3NcX1ZpZXdTdGFydC5jc2h0bWw=
+build_metadata.AdditionalFiles.CssScope = 

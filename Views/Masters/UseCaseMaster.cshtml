@@ -1,0 +1,256 @@
+@using System.Data
+@{
+    ViewBag.Title = "Use Case Master";
+    var useCases = (DataTable)ViewBag.UseCases ?? new DataTable();
+    var clients = (DataTable)ViewBag.Clients ?? new DataTable();
+    var processes = (DataTable)ViewBag.Processes ?? new DataTable();
+
+    ViewData["PageTitle"] = "Use Case Master";
+    ViewData["PageSubtitle"] = "A use case is one client plus one process. Every inflow template, inbox layout, collection, checklist and pipeline hangs off it.";
+    ViewData["PageBreadcrumb"] = "Administration / Use Case Master";
+    ViewData["PageActions"] = "<button class=\"btn btn-primary\" id=\"addUseCaseButton\">" +
+                              "<i class=\"fa-solid fa-plus\"></i>Add use case</button>";
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+<div class="grid layout-2-1">
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title-row">
+                <div>
+                    <h2 class="card-title">Use cases</h2>
+                    <p class="card-subtitle">
+                        The code and the name are built from the client and the process, so they
+                        cannot drift apart.
+                    </p>
+                </div>
+                <span class="badge badge-neutral">@useCases.Rows.Count use cases</span>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (useCases.Rows.Count == 0)
+            {
+                ViewData["EmptyIcon"] = "fa-diagram-project";
+                ViewData["EmptyHeading"] = "No use cases yet";
+                ViewData["EmptyMessage"] = "Add a client on the Client Master screen first, then pair it with a process here.";
+                @await Html.PartialAsync("_EmptyState")
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Code</th><th>Use case</th><th>Process</th>
+                                <th>Users</th><th>Status</th><th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (DataRow useCase in useCases.Rows)
+                        {
+                            var active = Convert.ToByte(useCase["IsActive"]) == 1;
+                            <tr>
+                                <td><strong>@useCase["UseCaseCode"]</strong></td>
+                                <td>
+                                    <strong>@useCase["UseCaseName"]</strong><br />
+                                    <span class="input-help">@useCase["ClientName"]</span>
+                                </td>
+                                <td><span class="badge badge-info">@useCase["ProcessName"]</span></td>
+                                <td>@useCase["MappedUsers"]</td>
+                                <td>
+                                    <span class="badge @(active ? "badge-success" : "badge-danger")">
+                                        @(active ? "Active" : "Inactive")
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="actions-cell">
+                                            @* No Edit: a use case is an identity, not a pair that can be
+                                           re-pointed. Everything - templates, collections, pipelines,
+                                           archived files, run logs - hangs off this UseCaseID, and none
+                                           of it would move. Deactivate and create a new one instead. *@
+                                        <button class="btn btn-sm" data-action="toggle-usecase"
+                                                data-ucid="@useCase["UseCaseID"]"
+                                                data-name="@useCase["UseCaseName"]"
+                                                data-active="@(active ? "1" : "0")">
+                                            @(active ? "Inactivate" : "Activate")
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title-row">
+                <div>
+                    <h2 class="card-title" id="useCaseFormTitle">New use case</h2>
+                    <p class="card-subtitle">Pick a client and a process. The rest is derived.</p>
+                </div>
+            </div>
+        </div>
+        <div class="card-body">
+            @* <input type="hidden" id="useCaseId" value="0" /> *@
+
+            <div class="form-group">
+                <label for="clientSelect">Client</label>
+                <select id="clientSelect">
+                    <option value="">Select a client</option>
+                    @foreach (DataRow client in clients.Rows)
+                    {
+                        <option value="@client["ClientID"]"
+                                data-code="@client["ClientCode"]"
+                                data-name="@client["ClientName"]">
+                            @client["ClientCode"] - @client["ClientName"]
+                        </option>
+                    }
+                </select>
+                <span class="input-help">Only active clients are listed.</span>
+            </div>
+
+            <div class="form-group">
+                <label for="processSelect">Process</label>
+                <select id="processSelect">
+                    <option value="">Select a process</option>
+                    @foreach (DataRow process in processes.Rows)
+                    {
+                        <option value="@process["ProcessID"]"
+                                data-code="@process["ProcessCode"]"
+                                data-name="@process["ProcessName"]">
+                            @process["ProcessCode"] - @process["ProcessName"]
+                        </option>
+                    }
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Resulting use case</label>
+                <div class="callout">
+                    <strong id="derivedCode">-</strong><br />
+                    <span class="sm" id="derivedName">Pick a client and a process to see the code.</span>
+                </div>
+                <span class="input-help">
+                    The code is used in folder paths and run logs. It is the client code and the
+                    process code joined with a hyphen, so it is never typed by hand.
+                </span>
+            </div>
+
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <button class="btn btn-primary" id="saveUseCaseButton">
+                        <i class="fa-solid fa-floppy-disk"></i>Save use case
+                    </button>
+                    <button class="btn" id="cancelUseCaseButton">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+    (window.apsReady = window.apsReady || []).push(function ($) {
+        'use strict';
+
+        var saveUrl = '@Url.Action("SaveUseCase", "Masters")';
+        var toggleUrl = '@Url.Action("ToggleUseCase", "Masters")';
+
+        function preview() {
+            var $client = $('#clientSelect option:selected');
+            var $process = $('#processSelect option:selected');
+
+            var clientCode = String($client.data('code') || '');
+            var processCode = String($process.data('code') || '');
+
+            if (!clientCode || !processCode) {
+                $('#derivedCode').text('-');
+                $('#derivedName').text('Pick a client and a process to see the code.');
+                return;
+            }
+
+            $('#derivedCode').text(clientCode + '-' + processCode);
+            $('#derivedName').text(String($client.data('name')) + ' - ' + String($process.data('name')));
+        }
+
+        // function reset() {
+        //     $('#useCaseId').val('0');
+        //     $('#clientSelect, #processSelect').val('');
+        //     $('#useCaseFormTitle').text('New use case');
+        //     preview();
+        // }
+         function reset() {
+                $('#clientSelect, #processSelect').val('');
+                preview();
+        }
+
+        function reload() {
+            window.setTimeout(function () { window.location.reload(); }, 600);
+        }
+
+        $('#clientSelect, #processSelect').on('change', preview);
+
+        $('#addUseCaseButton, #cancelUseCaseButton').on('click', function () {
+            reset();
+            $('#clientSelect').trigger('focus');
+        });
+
+        // $(document).on('click', '[data-action="edit-usecase"]', function () {
+        //     var $button = $(this);
+        //     $('#useCaseId').val(String($button.data('ucid')));
+        //     $('#clientSelect').val(String($button.data('client')));
+        //     $('#processSelect').val(String($button.data('process')));
+        //     $('#useCaseFormTitle').text('Edit use case');
+        //     preview();
+        //     $('#clientSelect').trigger('focus');
+        // });
+
+        $(document).on('click', '[data-action="toggle-usecase"]', function () {
+            var $button = $(this);
+            var id = String($button.data('ucid'));
+            var name = APS.escapeHtml(String($button.data('name')));
+            var isActive = String($button.data('active')) === '1';
+
+            var title = isActive ? 'Inactivate use case' : 'Activate use case';
+            var body = isActive
+                ? '<p>Inactivating <strong>' + name + '</strong> also revokes every ' +
+                    'user mapping for it. Continue?</p>'
+                : '<p>Activating <strong>' + name + '</strong> makes it available ' +
+                    'again for user mapping and inflow. Continue?</p>';
+
+            APS.confirmActionHtml(title, body, title, function () {
+                APS.post(toggleUrl, { useCaseId: id }).then(function (response) {
+                    if (!response.success) { return; }
+                    APS.toast(response.message, 'success');
+                    reload();
+                });
+            });
+        });
+
+        $('#saveUseCaseButton').on('click', function () {
+            var clientId = Number($('#clientSelect').val()) || 0;
+            var processId = Number($('#processSelect').val()) || 0;
+
+            if (!clientId) { APS.toast('Choose a client.', 'error'); return; }
+            if (!processId) { APS.toast('Choose a process.', 'error'); return; }
+
+                APS.busy(this, APS.post(saveUrl, {
+                useCaseId: 0,          // always a create; the screen has no edit path
+                clientId: clientId,
+                processId: processId
+            })).then(function (response) {
+                if (!response.success) { return; }
+                APS.toast(response.message, 'success');
+                reload();
+            });
+        });
+
+        preview();
+    });
+</script>
+}

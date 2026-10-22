@@ -1,0 +1,136 @@
+/* ===========================================================================
+   Configuration preview
+
+   Append to site.css, or keep as a separate file linked from Preview.cshtml.
+   Only what the portal stylesheet does not already provide: the read-only
+   "ghost" treatment that shows a shape without showing data.
+   =========================================================================== */
+
+.preview-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  border-left: 4px solid #2563eb;
+  background: #eef4ff;
+  color: #1e3a8a;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.preview-pane { display: none; }
+.preview-pane.active { display: block; }
+
+.preview-dl {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 8px 14px;
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+.preview-dl dt { color: #64748b; }
+.preview-dl dd { margin: 0; word-break: break-word; }
+
+.preview-mono { font-family: ui-monospace, Consolas, Monaco, monospace; font-size: 12px; }
+.preview-muted { color: #64748b; font-size: 12px; }
+
+/* Field values are shown as read-only text rather than disabled inputs, so a
+   long value wraps instead of being clipped by a fixed-width control. */
+.preview-value {
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+/* Inflow Source mirrors the real screen: upload panel left, history right. */
+.preview-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(300px, .95fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.preview-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  padding: 28px 18px;
+  margin-top: 12px;
+  border: 2px dashed #cbd5e1;
+  border-radius: 10px;
+  background: #fbfdff;
+}
+.preview-dropzone i { font-size: 26px; color: #475569; }
+.preview-dropzone strong { font-size: 15px; }
+.preview-dropzone span { font-size: 12px; color: #64748b; }
+
+/* Detail Setup renders its own tab strip inside the preview. */
+.detail-preview-pane { display: none; padding-top: 14px; }
+.detail-preview-pane.active { display: block; }
+
+.preview-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+
+.preview-fieldgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.preview-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.preview-required {
+  font-size: 10px;
+  font-weight: 700;
+  color: #b91c1c;
+  margin-left: 6px;
+}
+
+.preview-tabblock {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px;
+  margin-top: 12px;
+}
+.preview-tabhead {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.preview-subtabs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.preview-subtab {
+  border: 1px solid #eef2f7;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfdff;
+}
+.preview-subhead { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+
+@media (max-width: 1100px) {
+  .preview-split { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  .preview-dl { grid-template-columns: 1fr; }
+  .preview-subtabs { grid-template-columns: 1fr; }
+}

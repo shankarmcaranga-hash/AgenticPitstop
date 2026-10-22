@@ -1,0 +1,29 @@
+﻿@{
+    // Locks the shell: the sidebar, search and top bar actions are inert, so the
+    // only way forward is the Continue button below.
+    ViewData["LockShell"] = true;
+
+    ViewData["PageTitle"] = "Session expired";
+    ViewData["PageSubtitle"] = "You were inactive for a while, so the portal signed you out.";
+    ViewData["PageBreadcrumb"] = "Session";
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+<div class="card">
+    <div class="card-body">
+        <div class="empty-state">
+            <div class="empty-icon"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i></div>
+            <h3>Your session has expired</h3>
+            <p>
+                Continuing signs you back in with your Windows account and reloads
+                your access. Nothing you saved has been lost.
+            </p>
+            <div class="form-actions">
+                <a class="btn btn-primary" asp-controller="Inbox" asp-action="Index">
+                    <i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i>Continue
+                </a>
+            </div>
+        </div>
+    </div>
+</div>

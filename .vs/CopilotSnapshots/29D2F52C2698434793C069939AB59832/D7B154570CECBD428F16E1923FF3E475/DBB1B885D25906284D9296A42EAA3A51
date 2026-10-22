@@ -1,0 +1,91 @@
+﻿@{
+    ViewBag.Title = "Dynamic Reports";
+    var columns = (DataTable)ViewBag.Columns;
+    var kpi = (DataTable)ViewBag.Kpi;
+
+    ViewData["PageTitle"] = "Dynamic reports";
+    ViewData["PageSubtitle"] = "Reporting over configured inflow data. The report definition model is still open.";
+    ViewData["PageBreadcrumb"] = "Operations / Dynamic Reports";
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+<div class="callout callout-warning">
+    <strong>Not designed yet.</strong> This screen is a structural placeholder. The filter
+    shell below reads real configuration, but no report definition, grouping model or export
+    format has been agreed. Treat nothing here as final.
+</div>
+
+<div class="grid layout-2-1" style="margin-top:16px">
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Report builder</h2>
+            <p class="card-subtitle">Fields come from the current inflow template.</p>
+        </div>
+        <div class="card-body">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="reportType">Report type</label>
+                    <select id="reportType" disabled>
+                        <option>Review throughput</option>
+                        <option>Decision breakdown</option>
+                        <option>Agent performance</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="reportRange">Date range</label>
+                    <select id="reportRange" disabled>
+                        <option>Last 7 days</option>
+                        <option>Last 30 days</option>
+                        <option>Custom</option>
+                    </select>
+                </div>
+                <div class="form-group full">
+                    <label>Group by</label>
+                    <div class="inline" style="gap:6px; flex-wrap:wrap">
+                        @foreach (DataRow column in columns.Rows)
+                        {
+                            <span class="badge badge-neutral">@column["columnname"]</span>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="empty-state" style="margin-top:16px; min-height:220px">
+                <div class="empty-icon"><i class="fa-solid fa-chart-column"></i></div>
+                <h3>Chart and table area</h3>
+                <p>Reserved for the report output once the definition model is agreed.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Current record mix</h2>
+            <p class="card-subtitle">Live counts by review status.</p>
+        </div>
+        <div class="card-body">
+            @if (kpi.Rows.Count == 0)
+            {
+                <p class="input-help">No records have been imported yet.</p>
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Status</th><th>Records</th></tr></thead>
+                        <tbody>
+                            @foreach (DataRow row in kpi.Rows)
+                            {
+                                <tr>
+                                    <td>@row["reviewstatus"]</td>
+                                    <td><strong>@row["recordcount"]</strong></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>

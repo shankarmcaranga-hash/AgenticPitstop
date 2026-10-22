@@ -1,0 +1,121 @@
+﻿@{
+    var reports = ViewBag.ReportCatalog as DataTable ?? new DataTable();
+    var reportConfiguration = ViewBag.ReportConfiguration as DataSet ?? new DataSet();
+    var definition = reportConfiguration.Tables.Count > 0 ? reportConfiguration.Tables[0] : new DataTable();
+    var parameters = reportConfiguration.Tables.Count > 1 ? reportConfiguration.Tables[1] : new DataTable();
+    var columns = reportConfiguration.Tables.Count > 2 ? reportConfiguration.Tables[2] : new DataTable();
+    var permissions = reportConfiguration.Tables.Count > 3 ? reportConfiguration.Tables[3] : new DataTable();
+
+    string Value(DataRow row, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (row.Table.Columns.Contains(name) && row[name] != DBNull.Value)
+                return Convert.ToString(row[name]) ?? "";
+        }
+        return "";
+    }
+
+    var selected = definition.Rows.Count > 0 ? definition.Rows[0] : null;
+    var reportName = selected == null ? "Select a report" : Value(selected, "reportname", "name");
+}
+
+<div class="callout report-design-principle">
+    <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+    <span><strong>Design principle:</strong> JavaScript builds the filters and result table dynamically. ASP.NET Core resolves the selected ReportId to an approved stored procedure on the server. Administrative metadata changes update the UI, but do not create SQL dynamically.</span>
+</div>
+
+<div class="report-config-layout">
+    <aside class="card report-catalog">
+        <div class="card-header">
+            <div class="card-title-row">
+                <h2 class="card-title">Report Catalog</h2>
+                <button class="btn btn-primary btn-sm" id="registerReport"><i class="fa-solid fa-plus"></i>Register Report</button>
+            </div>
+            <p class="card-subtitle">Report definitions available to users.</p>
+        </div>
+        <div class="card-body">
+            <div class="callout callout-info report-admin-note"><i class="fa-solid fa-lock"></i> This area is normally restricted to <strong>ReportAdmin</strong>.</div>
+            <div class="report-list">
+                @foreach (var report in reports)
+                {
+                    <button class="report-list-item @(report.Item4 ? "active" : "")" type="button" data-report="@report.Item1">
+                        <strong>@report.Item1</strong>
+                        <span>@report.Item2 · @report.Item3</span>
+                    </button>
+                }
+            </div>
+        </div>
+    </aside>
+
+    <div class="card report-metadata">
+        <div class="card-header">
+            <div class="card-title-row">
+                <div>
+                    <h2 class="card-title">Report Metadata — @reportName</h2>
+                    <p class="card-subtitle">The application stores this configuration in metadata tables.</p>
+                </div>
+                <span class="badge badge-warning">SP created separately</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="form-grid">
+                <div class="form-group"><label for="reportName">Report name</label><input id="reportName" value="@(selected == null ? "" : Value(selected, "reportname", "name"))" /></div>
+                <div class="form-group"><label for="reportCode">Report code</label><input id="reportCode" value="@(selected == null ? "" : Value(selected, "reportcode", "code"))" /></div>
+                <div class="form-group full"><label for="reportDescription">Description</label><textarea id="reportDescription" rows="2">@(selected == null ? "" : Value(selected, "description", "reportdescription"))</textarea></div>
+                <div class="form-group"><label for="procedureSchema">Procedure schema</label><input id="procedureSchema" value="@(selected == null ? "" : Value(selected, "procedureschema", "schema"))" /></div>
+                <div class="form-group"><label for="procedureName">Procedure name</label><input id="procedureName" value="@(selected == null ? "" : Value(selected, "procedurename", "procedure"))" /></div>
+                <div class="form-group"><label for="executionMode">Execution mode</label><input id="executionMode" value="@(selected == null ? "" : Value(selected, "executionmode", "mode"))" /></div>
+                <div class="form-group"><label for="pageSize">Default page size</label><input id="pageSize" type="number" value="@(selected == null ? "" : Value(selected, "defaultpagesize", "pagesize"))" /></div>
+                <div class="form-group"><label for="maxRows">Max interactive rows</label><input id="maxRows" type="number" value="@(selected == null ? "" : Value(selected, "maxinteractiverows", "maxrows"))" /></div>
+                <div class="form-group"><label for="timeout">Command timeout (seconds)</label><input id="timeout" type="number" value="@(selected == null ? "" : Value(selected, "commandtimeout", "timeout"))" /></div>
+            </div>
+
+            <div class="report-section">
+                <div class="section-title-row"><h3>Parameters</h3><button class="btn btn-sm" id="addParameter"><i class="fa-solid fa-plus"></i>Add parameter</button></div>
+                <div class="table-wrap compact-table"><table><thead><tr><th>Parameter</th><th>Display</th><th>SQL type</th><th>Control</th><th>Special values</th></tr></thead><tbody>
+                    @foreach (DataRow parameter in parameters.Rows)
+                    {
+                        <tr><td><code>@Value(parameter, "parametername", "name")</code></td><td>@Value(parameter, "displayname", "label")</td><td>@Value(parameter, "sqltype", "datatype", "type")</td><td><span class="badge badge-neutral">@Value(parameter, "control", "controltype")</span></td><td>@Value(parameter, "specialvalues", "specialvalue")</td></tr>
+                    }
+                </tbody></table></div>
+            </div>
+
+            <div class="report-section">
+                <h3>Column Metadata</h3>
+                <div class="table-wrap compact-table"><table><thead><tr><th>Source column</th><th>Display name</th><th>Format</th></tr></thead><tbody>
+                    @foreach (DataRow column in columns.Rows)
+                    {
+                        <tr><td>@Value(column, "sourcecolumn", "columnname", "name")</td><td>@Value(column, "displayname", "label")</td><td>@Value(column, "format", "formatstring")</td></tr>
+                    }
+                </tbody></table></div>
+            </div>
+
+            <div class="report-section">
+                <h3>Permissions</h3>
+                <div class="table-wrap compact-table"><table><thead><tr><th>Role</th><th>View</th><th>Execute</th><th>Export</th></tr></thead><tbody>
+                    @foreach (DataRow permission in permissions.Rows)
+                    {
+                        <tr><td>@Value(permission, "rolename", "role")</td><td>@Value(permission, "canview", "view")</td><td>@Value(permission, "canexecute", "execute")</td><td>@Value(permission, "canexport", "export")</td></tr>
+                    }
+                </tbody></table></div>
+            </div>
+
+            <div class="form-actions report-actions"><button class="btn btn-primary" id="saveReportMetadata"><i class="fa-solid fa-floppy-disk"></i>Save Metadata</button><button class="btn" id="validateReport"><i class="fa-solid fa-check"></i>Validate Configuration</button></div>
+            <p class="input-help">Production recommendation: validation should confirm the stored procedure exists, allowed parameters match metadata, permissions are valid, and the report can execute under the application’s least-privilege SQL identity.</p>
+        </div>
+    </div>
+</div>
+
+<script nonce="@Context.ApsNonce()">
+(window.apsReady = window.apsReady || []).push(function ($) {
+    $('.report-list-item').on('click', function () {
+        $('.report-list-item').removeClass('active');
+        $(this).addClass('active');
+        $('.report-metadata .card-title').first().text('Report Metadata — ' + $(this).data('report'));
+    });
+    $('#saveReportMetadata').on('click', function () { APS.toast('Report metadata saved in this prototype.', 'success'); });
+    $('#validateReport').on('click', function () { APS.toast('Configuration validation completed successfully.', 'success'); });
+    $('#registerReport, #addParameter').on('click', function () { APS.toast('This control is ready for the report definition workflow.', 'info'); });
+});
+</script>

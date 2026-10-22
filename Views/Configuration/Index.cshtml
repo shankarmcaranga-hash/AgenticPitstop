@@ -1,0 +1,171 @@
+@{
+    ViewBag.Title = "Configuration";
+
+       var tab = (string)(ViewBag.Tab ?? "inflow-source");
+    var history = (DataTable)ViewBag.History;
+
+    // One selection for the whole workspace. Every step reads ViewBag.UseCaseID,
+    // and the tab links below already carry it, so choosing once is enough.
+    var useCases = (DataTable)ViewBag.UseCases ?? new DataTable();
+    var useCaseId = (int)(ViewBag.UseCaseID ?? 0);
+
+    var steps = new[]
+    {
+        ("inflow-source", "01 · Inflow",   "Define how work enters PITSTOP",  "1. Inflow Source"),
+        ("collections",   "02 · Data model","Collections and dynamic fields", "2. Collections & Fields"),
+        ("inbox-setup",   "03 · Inbox",     "Choose visible inflow columns",  "3. Inbox Setup"),
+        ("detail-setup",  "04 · Review",    "Compose the detail experience",  "4. Detail Setup"),
+        ("report-config", "05 · Reports",   "Define report metadata and access", "5. Report Configuration")
+        ,("source-registry", "06 · Sources", "Register evidence sources", "6. Source Registry")
+        ,("checklist", "07 · Checklist", "Manage checklist questions", "7. Checklist Master")
+    };
+
+    ViewData["PageTitle"] = "Configuration workspace";
+    ViewData["PageSubtitle"] = "Extend portal behaviour through configuration instead of changing core UI code.";
+    ViewData["PageBreadcrumb"] = "Administration / Configuration";
+     ViewData["PageActions"] =
+        "<button class=\"btn\" id=\"showHistoryButton\">" +
+        "<i class=\"fa-solid fa-clock-rotate-left\"></i>Configuration history</button>";
+}
+
+<link rel="stylesheet" href="~/css/configuration.css" asp-append-version="true" />
+
+@await Html.PartialAsync("_PageHeader")
+
+
+
+<nav class="cfg-tabs" aria-label="Configuration steps">
+    @{ var stepNo = 0; }
+    @foreach (var (key, title, hint, label) in steps)
+    {
+        stepNo++;
+        var active = tab == key;
+        <a class="cfg-tab @(active ? "active" : "")"
+           asp-action="Index" asp-route-tab="@key" asp-route-useCaseId="@ViewBag.UseCaseID"
+           title="@hint">
+            <span class="cfg-tab-num">@stepNo</span>
+            <span class="cfg-tab-text">
+                <strong>@label.Substring(label.IndexOf('.') + 1).Trim()</strong>
+                <small>@hint</small>
+            </span>
+        </a>
+    }
+</nav>
+
+<div id="configPanel"></nav>
+
+@* The use case for every step. It sits above the panel so it is read before
+   anything is configured, and it stays selected as steps are changed. *@
+<div class="card" id="cfgUseCaseBar" style="margin-bottom:14px">
+    <div class="card-body">
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="cfgUseCase">Client &ndash; Process</label>
+                <select id="cfgUseCase">
+                    <option value="0">Select a use case</option>
+                    @foreach (DataRow useCase in useCases.Rows)
+                    {
+                        var ucId = Convert.ToInt32(useCase["UseCaseID"]);
+                        <option value="@ucId" selected="@(ucId == useCaseId ? "selected" : null)">
+                            @ApsMetadata.Cell(useCase, "UseCaseCode") &ndash; @ApsMetadata.Cell(useCase, "UseCaseName")
+                        </option>
+                    }
+                </select>
+                <span class="input-help">
+                    Everything configured on every step belongs to this use case.
+                    It stays selected as you move between steps.
+                </span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="configPanel">
+    @switch (tab)
+    {
+        case "collections":
+            @await Html.PartialAsync("_Collections")
+            break;
+        case "inbox-setup":
+            @await Html.PartialAsync("_InboxSetup")
+            break;
+        case "detail-setup":
+            @await Html.PartialAsync("_DetailSetup")
+            break;
+        case "report-config":
+            @await Html.PartialAsync("_ReportConfiguration")
+            break;
+        case "source-registry":
+            @await Html.PartialAsync("_SourceRegistry")
+            break;
+        case "checklist":
+            @await Html.PartialAsync("_Checklistquestion")
+            break;
+        default:
+            @await Html.PartialAsync("_InflowSource")
+            break;
+    }
+</div>
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+        (function ($) {
+        'use strict';
+
+        // Changing the use case reloads the step the user is on, so both the
+        // selection and their place in the workspace survive. Each step's data
+        // belongs to the use case, so reloading is the only way to keep the
+        // form, the preview and the saved layout in step with one another.
+        $('#cfgUseCase').on('change', function () {
+            window.location.href = '@Url.Action("Index", "Configuration")' +
+                '?tab=@tab&useCaseId=' + encodeURIComponent($(this).val());
+        });
+
+        var history = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+            ApsMetadata.ToList(history).Select(h => new {
+                item = h["configitem"],
+                detail = h["detail"],
+                by = h["CreatedBy"],
+                at = Convert.ToDateTime(h["CreatedDate"]).ToString("dd MMM yyyy · HH:mm")
+            })));
+
+        $('#showHistoryButton').on('click', function () {
+            if (!history.length) {
+                APS.toast('No configuration changes have been recorded yet.', 'info');
+                return;
+            }
+            var rows = history.map(function (entry) {
+                return '<li><strong>' + APS.escapeHtml(entry.item) + '</strong>' +
+                       '<span>' + APS.escapeHtml(entry.detail || '') + ' · ' +
+                       APS.escapeHtml(entry.by) + ' · ' + APS.escapeHtml(entry.at) + '</span></li>';
+            }).join('');
+            APS.openModal('Configuration history',
+                '<ul class="timeline">' + rows + '</ul>',
+                '<button class="btn" data-modal-close>Close</button>');
+        });
+
+        // When a row is added anywhere in the workspace, bring it into view and
+        // put the cursor in its first box, so nobody has to scroll to find it.
+        $('#configPanel').on('click',
+            '[id^="add"], [id^="Add"], [data-action^="add"], [data-act^="add"]',
+            function () {
+                var $scope = $(this).closest('.card, .dl-item, .cc-field, #configPanel');
+
+                window.setTimeout(function () {
+                                       // A row marked as new wins; otherwise the newest row is the last one.
+                    var $row = $scope.find('.cfg-new').first();
+                    if (!$row.length) {
+                        $row = $scope.find('.cc-field, .field-row, .dl-item, .dl-row, .pl-row, tbody tr').last();
+                    }
+                    if (!$row.length) { return; }
+
+                    $row[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    $row.addClass('cfg-added');
+                    window.setTimeout(function () { $row.removeClass('cfg-added'); }, 1200);
+
+                    var $first = $row.find('input:not([type=hidden]), select, textarea').filter(':enabled').first();
+                    if ($first.length) { $first.trigger('focus'); }
+                }, 60);
+            });
+    })(jQuery);
+</script>
+}

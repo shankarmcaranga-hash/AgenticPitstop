@@ -1,0 +1,26 @@
+﻿using AgenticPitstop.Infrastructure;
+using Microsoft.AspNetCore.Mvc;
+
+namespace AgenticPitstop.Controllers;
+
+/// <summary>
+/// Dynamic Reports. Deliberately a structural placeholder: the filter shell and
+/// the field catalogue are wired to real configuration, but the report definition
+/// model is still open. Nothing here should be treated as final.
+/// </summary>
+[ApsAuthorize]
+public sealed class ReportsController : ApsController
+{
+    public ReportsController(ApsDb db, ApsIdentity identity, ApsMetadata meta)
+        : base(db, identity, meta) { }
+
+    protected override string ActiveScreenKey => "reports";
+
+    [HttpGet]
+    public IActionResult Index()
+    {
+        ViewBag.Columns = Meta.InflowColumns();
+        ViewBag.Kpi = Db.Query("APS_InflowData_GetKpi");
+        return View();
+    }
+}

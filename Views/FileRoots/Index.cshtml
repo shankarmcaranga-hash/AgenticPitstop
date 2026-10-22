@@ -1,0 +1,158 @@
+﻿@using System.Data
+@{
+    ViewBag.Title = "Folder Roots";
+    var roots = ViewBag.Roots as DataTable ?? new DataTable();
+    var bases = ViewBag.AllowedBases as List<string> ?? new List<string>();
+}
+
+<link rel="stylesheet" href="~/css/configuration.css" asp-append-version="true" />
+
+<div class="card fr-header">
+    <div class="fr-header-main">
+        <div class="fr-title">
+            <span class="fr-title-icon"><i class="fa-solid fa-folder-tree"></i></span>
+            <div>
+                <h1>Folder Roots</h1>
+                <p>Where pipelines save documents. Give each folder a name, then pick that name when mapping a file.</p>
+            </div>
+        </div>
+        <button type="button" class="btn btn-primary" id="addRoot"><i class="fa-solid fa-plus"></i>Add folder</button>
+    </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+    <div class="card-body">
+        <div class="callout">
+            <i class="fa-solid fa-shield-halved"></i>
+            A folder must sit inside one of the areas this server permits. To allow a new area, IT adds it to
+            <code>Aps:AllowedBaseFolders</code>.
+            @if (bases.Count == 0)
+            {
+                <strong>No areas are permitted yet, so no folder can be added.</strong>
+            }
+            else
+            {
+                <ul style="margin:8px 0 0">
+                    @foreach (var b in bases)
+                    {
+                        <li><code>@b</code></li>
+                    }
+                </ul>
+            }
+        </div>
+
+        <div class="table-wrap" style="margin-top:14px">
+            <table>
+                <thead>
+                    <tr><th>Name</th><th>Folder</th><th>Description</th><th>Status</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @if (roots.Rows.Count == 0)
+                    {
+                        <tr><td colspan="5" class="ib-none">No folders yet. Add one to start saving documents.</td></tr>
+                    }
+                    else
+                    {
+                        foreach (DataRow row in roots.Rows)
+                        {
+                            var active = ApsMetadata.Cell(row, "IsActive") == "1";
+                            var isDefault = ApsMetadata.Cell(row, "IsDefault") == "1";
+                            <tr>
+                                <td>
+                                    <strong>@ApsMetadata.Cell(row, "RootAlias")</strong>
+                                    @if (isDefault)
+                                    {
+                                        <span class="badge badge-info">Default</span>
+                                    }
+                                </td>
+                                <td class="mono">@ApsMetadata.Cell(row, "RootPath")</td>
+                                <td>@ApsMetadata.Cell(row, "Description")</td>
+                                <td><span class="badge @(active ? "badge-success" : "badge-neutral")">@(active ? "Enabled" : "Disabled")</span></td>
+                                <td class="ib-right">
+                                    <button type="button" class="btn btn-sm" data-edit="@ApsMetadata.Cell(row, "FileRootID")"
+                                            data-alias="@ApsMetadata.Cell(row, "RootAlias")"
+                                            data-path="@ApsMetadata.Cell(row, "RootPath")"
+                                            data-description="@ApsMetadata.Cell(row, "Description")"
+                                            data-default="@(isDefault ? "1" : "0")">
+                                        Edit
+                                    </button>
+                                    <button type="button" class="btn btn-sm" data-toggle-root="@ApsMetadata.Cell(row, "FileRootID")">
+                                        @(active ? "Disable" : "Enable")
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script nonce="@Context.ApsNonce()">
+        (function ($) {
+            'use strict';
+
+            function form(root) {
+                root = root || { id: 0, alias: '', path: '', description: '', isDefault: false };
+                return '<div class="form-grid">' +
+                    '<div class="form-group"><label>Name</label>' +
+                        '<input id="frAlias" maxlength="50" value="' + APS.escapeAttr(root.alias) + '" />' +
+                        '<span class="input-help">Shown in the File root dropdown, for example Collections.</span></div>' +
+                    '<div class="form-group"><label>Folder path</label>' +
+                        '<input id="frPath" maxlength="400" value="' + APS.escapeAttr(root.path) + '" placeholder="D:\\PitstopDocuments\\Claims" />' +
+                        '<span class="input-help">Must sit inside a permitted area. It is created if it does not exist.</span></div>' +
+                    '<div class="form-group"><label>Description</label>' +
+                        '<input id="frDescription" maxlength="300" value="' + APS.escapeAttr(root.description) + '" /></div>' +
+                    '<div class="form-group"><label>&nbsp;</label>' +
+                        '<label class="pl-auto-check"><input type="checkbox" id="frDefault"' + (root.isDefault ? ' checked' : '') +
+                        ' /> Use this when a pipeline names no folder</label></div>' +
+                    '</div>';
+            }
+
+            function open(root) {
+                APS.openModal(root && root.id ? 'Edit folder' : 'Add folder', form(root),
+                    '<button type="button" class="btn" data-modal-close>Cancel</button>' +
+                    '<button type="button" class="btn btn-primary" id="frSave">Save</button>');
+
+                $('#frSave').on('click', function () {
+                    APS.busy(this, APS.post('@Url.Action("Save", "FileRoots")', {
+                        fileRootId: root ? root.id : 0,
+                        rootAlias: $('#frAlias').val(),
+                        rootPath: $('#frPath').val(),
+                        description: $('#frDescription').val(),
+                        isDefault: $('#frDefault').is(':checked')
+                    })).then(function (r) {
+                        if (!r.success) { return; }
+                        APS.closeModal();
+                        APS.toast(r.message, 'success');
+                        window.setTimeout(function () { window.location.reload(); }, 700);
+                    });
+                });
+            }
+
+            $('#addRoot').on('click', function () { open(null); });
+
+            $(document).on('click', '[data-edit]', function () {
+                var $b = $(this);
+                open({
+                    id: Number($b.attr('data-edit')),
+                    alias: $b.attr('data-alias'),
+                    path: $b.attr('data-path'),
+                    description: $b.attr('data-description'),
+                    isDefault: $b.attr('data-default') === '1'
+                });
+            });
+
+            $(document).on('click', '[data-toggle-root]', function () {
+                APS.post('@Url.Action("ToggleStatus", "FileRoots")', { fileRootId: $(this).attr('data-toggle-root') })
+                    .then(function (r) {
+                        if (!r.success) { return; }
+                        APS.toast(r.message, 'success');
+                        window.setTimeout(function () { window.location.reload(); }, 700);
+                    });
+            });
+        })(jQuery);
+    </script>
+}

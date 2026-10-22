@@ -1,0 +1,824 @@
+@using System.Data
+@{
+    Layout = "_PreviewLayout";
+    ViewBag.Title = "Configuration preview";
+
+    var tab = (string)(ViewBag.Tab ?? "inflow-source");
+
+    var tabs = new[]
+    {
+        ("inflow-source",        "1. Inflow Source"),
+        ("collections",          "2. Collections & Fields"),
+        ("inbox-setup",          "3. Inbox Setup"),
+        ("detail-setup",         "4. Detail Setup"),
+        ("report-configuration", "5. Report Configuration"),
+        ("source-registry",      "6. Source Registry"),
+        ("checklist-master",     "7. Checklist Master")
+    };
+
+    var currentLabel = tabs.First(t => t.Item1 == tab).Item2;
+
+    ViewData["PageTitle"] = "Configuration preview";
+    ViewData["PageSubtitle"] = currentLabel.Substring(currentLabel.IndexOf(' ') + 1)
+        + " — rendered exactly as the saved configuration produces it.";
+    ViewData["PageBreadcrumb"] = "Administration / Configuration / Preview";
+    ViewData["PageActions"] =
+        "<span class=\"badge badge-info\">Generated " + DateTime.Now.ToString("dd MMM yyyy · HH:mm") + "</span>" +
+        "<button class=\"btn\" id=\"previewRefresh\"><i class=\"fa-solid fa-rotate\"></i>Refresh</button>";
+
+    // Shared across the panes that need them.
+    var records = ViewBag.PreviewRecords as DataTable ?? new DataTable();
+
+    string BadgeFor(string status)
+    {
+        var value = (status ?? string.Empty).ToLowerInvariant();
+        if (value.Contains("approved")) return "badge-success";
+        if (value.Contains("reject")) return "badge-danger";
+        if (value.Contains("pending") || value.Contains("clarification") || value.Contains("processing"))
+            return "badge-warning";
+        return "badge-neutral";
+    }
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+<div class="preview-banner">
+    <i class="fa-solid fa-eye"></i>
+    <span>
+        Read-only preview of saved configuration, using live data. Save a section in the
+        Configuration workspace, then use Refresh preview there to bring this tab up to date.
+    </span>
+</div>
+
+@* Real links, not script. Each tab is its own request, so only that section is
+   queried and rendered — the page never holds seven screens at once. *@
+<div class="tabs">
+    @foreach (var (key, label) in tabs)
+    {
+        <a class="tab-button @(tab == key ? "active" : "")"
+           asp-action="Preview" asp-route-tab="@key">@label</a>
+    }
+</div>
+
+@switch (tab)
+{
+    // =====================================================================
+    case "collections":
+    {
+        var collections = ViewBag.Collections as DataTable ?? new DataTable();
+        var collectionFields = ViewBag.CollectionFields as Dictionary<short, DataTable> ?? new Dictionary<short, DataTable>();
+
+        if (collections.Rows.Count == 0)
+        {
+            @await Html.PartialAsync("_PreviewEmpty", "No collections have been created yet.")
+        }
+        else
+        {
+            foreach (DataRow collection in collections.Rows)
+            {
+                var cid = Convert.ToInt16(collection["cid"]);
+                var fields = collectionFields.TryGetValue(cid, out var f) ? f : new DataTable();
+                var isSystem = ApsMetadata.HasColumn(collections, "issystem") && Convert.ToBoolean(collection["issystem"]);
+                var tableName = ApsMetadata.Cell(collection, "tablename");
+
+                // The system collection is APS_InflowData, so its rows are the
+                // real imported records. A user-created collection has none yet.
+                var isInflow = string.Equals(tableName, "APS_InflowData", StringComparison.OrdinalIgnoreCase);
+
+                <div class="card" style="margin-bottom:16px">
+                    <div class="card-body">
+                        <div class="section-title-row">
+                            <div>
+                                <h3 class="card-title">
+                                    @ApsMetadata.Cell(collection, "collectionname")
+                                    @if (isSystem)
+                                    {
+                                        <span class="badge badge-neutral">System</span>
+                                    }
+                                </h3>
+                                <p class="card-subtitle">@ApsMetadata.Cell(collection, "description")</p>
+                            </div>
+                            <span class="badge badge-info">@fields.Rows.Count fields</span>
+                        </div>
+
+                        <p class="preview-mono preview-muted">@tableName</p>
+
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                    @if (fields.Rows.Count == 0)
+                                    {
+                                        <th>No fields defined</th>
+                                    }
+                                    else
+                                    {
+                                        foreach (DataRow field in fields.Rows)
+                                        {
+                                            <th>
+                                                @ApsMetadata.Cell(field, "fieldname")
+                                                <div class="preview-muted">@ApsMetadata.Cell(field, "datatype") &middot; @ApsMetadata.Cell(field, "inputtype")</div>
+                                            </th>
+                                        }
+                                    }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                @if (isInflow && records.Rows.Count > 0 && fields.Rows.Count > 0)
+                                {
+                                    foreach (DataRow record in records.AsEnumerable().Take(3))
+                                    {
+                                        <tr>
+                                        @foreach (DataRow field in fields.Rows)
+                                        {
+                                            <td>@ApsMetadata.Cell(record, ApsMetadata.Cell(field, "fieldname"))</td>
+                                        }
+                                        </tr>
+                                    }
+                                }
+                                else
+                                {
+                                    <tr>
+                                        <td colspan="@Math.Max(1, fields.Rows.Count)">No records stored in this collection yet.</td>
+                                    </tr>
+                                }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            }
+        }
+        break;
+    }
+
+    // =====================================================================
+    case "inbox-setup":
+    {
+        var inboxColumns = ViewBag.InboxColumns as List<string> ?? new List<string>();
+        var kpi = ViewBag.Kpi as DataTable ?? new DataTable();
+
+        Func<string, int> countFor = status => kpi.AsEnumerable()
+            .Where(r => string.Equals(Convert.ToString(r["reviewstatus"]), status, StringComparison.OrdinalIgnoreCase))
+            .Select(r => Convert.ToInt32(r["recordcount"]))
+            .FirstOrDefault();
+
+        if (inboxColumns.Count == 0)
+        {
+            @await Html.PartialAsync("_PreviewEmpty", "No Inbox columns have been selected yet.")
+        }
+        else
+        {
+            <div class="grid grid-4" style="margin-bottom:16px">
+                <div class="card kpi-card">
+                    <span class="kpi-label">Pending review</span>
+                    <span class="kpi-value">@countFor("Pending Review")</span>
+                    <div class="kpi-trend">Awaiting human action</div>
+                </div>
+                <div class="card kpi-card">
+                    <span class="kpi-label">Needs clarification</span>
+                    <span class="kpi-value">@countFor("Needs Clarification")</span>
+                    <div class="kpi-trend">Requires follow-up</div>
+                </div>
+                <div class="card kpi-card">
+                    <span class="kpi-label">Approved</span>
+                    <span class="kpi-value">@countFor("Approved")</span>
+                    <div class="kpi-trend">Completed successfully</div>
+                </div>
+                <div class="card kpi-card">
+                    <span class="kpi-label">AI processing</span>
+                    <span class="kpi-value">@countFor("AI Processing")</span>
+                    <div class="kpi-trend">Agent work in progress</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="toolbar">
+                        <div class="toolbar-left">
+                            <input type="search" placeholder="Search configured columns..." disabled />
+                            <select disabled><option>All</option></select>
+                            <button class="btn btn-sm" type="button" disabled>
+                                <i class="fa-solid fa-magnifying-glass"></i>Search
+                            </button>
+                        </div>
+                        <div class="toolbar-right">
+                            <span class="badge badge-info">Configured columns: @inboxColumns.Count</span>
+                            <span class="badge badge-neutral">@records.Rows.Count records</span>
+                        </div>
+                    </div>
+
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>IFDID</th>
+                                    @foreach (var column in inboxColumns)
+                                    {
+                                        <th>@column</th>
+                                    }
+                                    <th>Status</th>
+                                    <th>View</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            @if (records.Rows.Count == 0)
+                            {
+                                <tr><td colspan="@(inboxColumns.Count + 3)">No records have been imported yet.</td></tr>
+                            }
+                            else
+                            {
+                                foreach (DataRow record in records.AsEnumerable().Take(10))
+                                {
+                                    var status = ApsMetadata.Cell(record, "reviewstatus");
+                                    <tr>
+                                        <td><strong>#@record["ifdid"]</strong></td>
+                                        @foreach (var column in inboxColumns)
+                                        {
+                                            <td>@ApsMetadata.Cell(record, column)</td>
+                                        }
+                                        <td><span class="badge @BadgeFor(status)">@status</span></td>
+                                        <td><button class="btn btn-sm btn-primary" type="button" disabled>View</button></td>
+                                    </tr>
+                                }
+                            }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="pagination">
+                        <span>Showing up to 10 of @records.Rows.Count records. Controls are inert in the preview.</span>
+                    </div>
+                </div>
+            </div>
+        }
+        break;
+    }
+
+    // =====================================================================
+    case "detail-setup":
+    {
+        var detailConfig = ViewBag.DetailConfig as DataRow;
+        var sampleRecord = ViewBag.SampleRecord as DataRow;
+        var primaryTabs = ViewBag.PrimaryTabs as List<DataRow> ?? new List<DataRow>();
+        var subTabs = ViewBag.SubTabs as List<DataRow> ?? new List<DataRow>();
+        var headerFields = ViewBag.HeaderFields as List<DataRow> ?? new List<DataRow>();
+        var tabFields = ViewBag.TabFields as List<DataRow> ?? new List<DataRow>();
+
+        Func<DataRow, List<DataRow>> fieldsFor = t =>
+        {
+            var dtid = Convert.ToInt16(t["dtid"]);
+            return tabFields
+                .Where(f => f["dtid"] != DBNull.Value && Convert.ToInt16(f["dtid"]) == dtid)
+                .OrderBy(f => Convert.ToInt16(f["sortorder"]))
+                .ToList();
+        };
+
+        if (detailConfig == null)
+        {
+            @await Html.PartialAsync("_PreviewEmpty", "The review detail experience has not been composed yet.")
+        }
+        else
+        {
+            var mode = Convert.ToByte(detailConfig["mode"]);
+
+            <div class="card">
+                <div class="card-body">
+                    <div class="section-title-row">
+                        <div>
+                            <h3 class="card-title">@(mode == 1 ? "Data Review Workspace" : "Evidence Review Workspace")</h3>
+                            <p class="card-subtitle">
+                                @if (sampleRecord == null)
+                                {
+                                    <text>No record available, so field values are blank. The layout is still accurate.</text>
+                                }
+                                else
+                                {
+                                    <text>Rendered with record #@sampleRecord["ifdid"], the most recent import.</text>
+                                }
+                            </p>
+                        </div>
+                        <div class="preview-chips">
+                            <span class="badge @(Convert.ToBoolean(detailConfig["knowledgeai"]) ? "badge-success" : "badge-neutral")">Knowledge AI</span>
+                            <span class="badge @(Convert.ToBoolean(detailConfig["allowapprove"]) ? "badge-success" : "badge-neutral")">Approve</span>
+                            <span class="badge @(Convert.ToBoolean(detailConfig["allowreject"]) ? "badge-success" : "badge-neutral")">Reject</span>
+                            <span class="badge @(Convert.ToBoolean(detailConfig["allowclarify"]) ? "badge-success" : "badge-neutral")">Clarify</span>
+                            <span class="badge @(Convert.ToBoolean(detailConfig["allowcomments"]) ? "badge-success" : "badge-neutral")">Comments</span>
+                        </div>
+                    </div>
+
+                    @if (headerFields.Count > 0)
+                    {
+                        <div class="preview-fieldgrid">
+                            @foreach (var field in headerFields)
+                            {
+                                var name = ApsMetadata.Cell(field, "fieldname");
+                                <div class="preview-field">
+                                    <label>
+                                        @name
+                                        @if (Convert.ToBoolean(field["isrequired"]))
+                                        {
+                                            <span class="preview-required">required</span>
+                                        }
+                                    </label>
+                                    <div class="preview-value">@ApsMetadata.Cell(sampleRecord, name)</div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            if (primaryTabs.Count == 0)
+            {
+                <div class="card" style="margin-top:16px">
+                    <div class="card-body"><p class="preview-muted">No tabs configured for this mode.</p></div>
+                </div>
+            }
+            else
+            {
+                <div class="card" style="margin-top:16px">
+                    <div class="card-body">
+                        <div class="tabs" id="detailPreviewTabs">
+                            @{ var firstTab = true; }
+                            @foreach (var t in primaryTabs)
+                            {
+                                <a class="tab-button @(firstTab ? "active" : "")" href="#"
+                                   data-detail-tab="@ApsMetadata.Cell(t, "dtid")">
+                                    @if (!string.IsNullOrWhiteSpace(ApsMetadata.Cell(t, "icon")))
+                                    {
+                                        <i class="fa-solid @ApsMetadata.Cell(t, "icon")"></i>
+                                    }
+                                    @ApsMetadata.Cell(t, "label")
+                                    @if (t["badge"] != DBNull.Value)
+                                    {
+                                        <span class="badge badge-info">@ApsMetadata.Cell(t, "badge")</span>
+                                    }
+                                </a>
+                                firstTab = false;
+                            }
+                        </div>
+
+                        @{ var firstPane = true; }
+                        @foreach (var t in primaryTabs)
+                        {
+                            var dtid = Convert.ToInt16(t["dtid"]);
+                            var ownFields = fieldsFor(t);
+                            var children = subTabs
+                                .Where(s => s["parenttabid"] != DBNull.Value && Convert.ToInt16(s["parenttabid"]) == dtid)
+                                .OrderBy(s => Convert.ToInt16(s["sortorder"]))
+                                .ToList();
+
+                            <div class="detail-preview-pane @(firstPane ? "active" : "")" data-detail-pane="@dtid">
+                                @if (ownFields.Count > 0)
+                                {
+                                    <div class="preview-fieldgrid">
+                                        @foreach (var field in ownFields)
+                                        {
+                                            var name = ApsMetadata.Cell(field, "fieldname");
+                                            <div class="preview-field">
+                                                <label>
+                                                    @name
+                                                    @if (Convert.ToBoolean(field["isrequired"]))
+                                                    {
+                                                        <span class="preview-required">required</span>
+                                                    }
+                                                </label>
+                                                <div class="preview-value">@ApsMetadata.Cell(sampleRecord, name)</div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+
+                                @foreach (var child in children)
+                                {
+                                    var childFields = fieldsFor(child);
+                                    <div class="preview-subtab">
+                                        <div class="preview-subhead">
+                                            <strong>@ApsMetadata.Cell(child, "label")</strong>
+                                            <span class="badge badge-neutral">@ApsMetadata.Cell(child, "displaytype")</span>
+                                        </div>
+                                        @if (childFields.Count == 0)
+                                        {
+                                            <p class="preview-muted">No fields configured.</p>
+                                        }
+                                        else
+                                        {
+                                            <div class="preview-fieldgrid">
+                                                @foreach (var field in childFields)
+                                                {
+                                                    var name = ApsMetadata.Cell(field, "fieldname");
+                                                    <div class="preview-field">
+                                                        <label>@name</label>
+                                                        <div class="preview-value">@ApsMetadata.Cell(sampleRecord, name)</div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+
+                                @if (ownFields.Count == 0 && children.Count == 0)
+                                {
+                                    <p class="preview-muted">No fields or sub-tabs configured for this tab.</p>
+                                }
+                            </div>
+                            firstPane = false;
+                        }
+                    </div>
+                </div>
+            }
+        }
+        break;
+    }
+
+    // =====================================================================
+    case "report-configuration":
+    {
+        var reports = ViewBag.ReportCatalog as DataTable ?? new DataTable();
+        var reportDetails = ViewBag.ReportDetails as Dictionary<short, DataSet> ?? new Dictionary<short, DataSet>();
+
+        if (reports.Rows.Count == 0)
+        {
+            @await Html.PartialAsync("_PreviewEmpty", "No reports have been defined yet.")
+        }
+        else
+        {
+            foreach (DataRow report in reports.Rows)
+            {
+                var reportId = Convert.ToInt16(report["reportid"]);
+                var detail = reportDetails.TryGetValue(reportId, out var d) ? d : null;
+                var parameters = detail != null && detail.Tables.Count > 1 ? detail.Tables[1] : new DataTable();
+                var columns = detail != null && detail.Tables.Count > 2 ? detail.Tables[2] : new DataTable();
+
+                <div class="card" style="margin-bottom:16px">
+                    <div class="card-body">
+                        <div class="section-title-row">
+                            <div>
+                                <h3 class="card-title">@ApsMetadata.Cell(report, "reportname")</h3>
+                                <p class="card-subtitle preview-mono">@ApsMetadata.Cell(report, "reportcode")</p>
+                            </div>
+                            <span class="badge badge-info">@columns.Rows.Count columns</span>
+                        </div>
+
+                        @if (parameters.Rows.Count > 0)
+                        {
+                            <div class="preview-fieldgrid">
+                                @foreach (DataRow parameter in parameters.Rows)
+                                {
+                                    <div class="preview-field">
+                                        <label>@ApsMetadata.Cell(parameter, "displayname")</label>
+                                        <div class="preview-value preview-muted">Filter</div>
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        <div class="table-wrap" style="margin-top:12px">
+                            <table>
+                                <thead>
+                                    <tr>
+                                    @if (columns.Rows.Count == 0)
+                                    {
+                                        <th>No output columns configured</th>
+                                    }
+                                    else
+                                    {
+                                        foreach (DataRow column in columns.Rows)
+                                        {
+                                            <th>@ApsMetadata.Cell(column, "displayname")</th>
+                                        }
+                                    }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="@Math.Max(1, columns.Rows.Count)">
+                                            The preview never runs a report procedure. Open Dynamic Reports to execute it.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            }
+        }
+        break;
+    }
+
+    // =====================================================================
+    case "source-registry":
+    {
+        var sources = ViewBag.SourceRegistry as DataTable ?? new DataTable();
+
+        if (sources.Rows.Count == 0)
+        {
+            @await Html.PartialAsync("_PreviewEmpty", "No evidence sources have been registered yet.")
+        }
+        else
+        {
+            <div class="card">
+                <div class="card-body">
+                    <div class="section-title-row">
+                        <div>
+                            <h3 class="card-title">Registered sources</h3>
+                            <p class="card-subtitle">Available to checklist questions.</p>
+                        </div>
+                        <span class="badge badge-neutral">@sources.Rows.Count sources</span>
+                    </div>
+
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                @foreach (DataColumn column in sources.Columns)
+                                {
+                                    <th>@column.ColumnName</th>
+                                }
+                                </tr>
+                            </thead>
+                            <tbody>
+                            @foreach (DataRow source in sources.Rows)
+                            {
+                                <tr>
+                                @foreach (DataColumn column in sources.Columns)
+                                {
+                                    <td>@ApsMetadata.Cell(source, column.ColumnName)</td>
+                                }
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+        break;
+    }
+
+    // =====================================================================
+    case "checklist-master":
+    {
+        var checklist = ViewBag.ChecklistQuestions as DataTable ?? new DataTable();
+
+        if (checklist.Rows.Count == 0)
+        {
+            @await Html.PartialAsync("_PreviewEmpty", "No checklist questions have been created yet.")
+        }
+        else
+        {
+            <div class="card">
+                <div class="card-body">
+                    <div class="section-title-row">
+                        <div>
+                            <h3 class="card-title">Checklist questions</h3>
+                            <p class="card-subtitle">Presented to reviewers on the detail screen.</p>
+                        </div>
+                        <span class="badge badge-neutral">@checklist.Rows.Count questions</span>
+                    </div>
+
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                @foreach (DataColumn column in checklist.Columns)
+                                {
+                                    <th>@column.ColumnName</th>
+                                }
+                                </tr>
+                            </thead>
+                            <tbody>
+                            @foreach (DataRow question in checklist.Rows)
+                            {
+                                <tr>
+                                @foreach (DataColumn column in checklist.Columns)
+                                {
+                                    <td>@ApsMetadata.Cell(question, column.ColumnName)</td>
+                                }
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+        break;
+    }
+
+    // ===================== default: INFLOW SOURCE =====================
+    default:
+    {
+        var config = ViewBag.Config as DataRow;
+        var headers = ViewBag.Headers as DataTable ?? new DataTable();
+        var inflowColumns = ViewBag.InflowColumns as DataTable ?? new DataTable();
+        var uploadHistory = ViewBag.UploadHistory as DataTable ?? new DataTable();
+        var configHistory = ViewBag.ConfigHistory as DataTable ?? new DataTable();
+        var clients = ViewBag.Clients as DataTable ?? new DataTable();
+
+        if (config == null)
+        {
+            @await Html.PartialAsync("_PreviewEmpty", "No inflow source has been configured yet.")
+        }
+        else
+        {
+            var inflowType = Convert.ToByte(config["inflowtype"]);
+
+            <div class="preview-split">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="section-title-row">
+                            <div>
+                                <h3 class="card-title">Upload inflow data</h3>
+                                <p class="card-subtitle">
+                                    @(inflowType == 1
+                                        ? "Automated API: " + ApsMetadata.Cell(config, "apiendpoint")
+                                        : "Expected template: " + ApsMetadata.Cell(config, "templatename"))
+                                </p>
+                            </div>
+                            <span class="badge badge-info">
+                                @(inflowType == 1 ? "API" : ApsMetadata.Cell(config, "filetype") + " only")
+                            </span>
+                        </div>
+
+                        @if (inflowType == 2)
+                        {
+                            <div class="preview-dropzone">
+                                <i class="fa-solid fa-file-arrow-up"></i>
+                                <strong>Drop an .xlsx file here</strong>
+                                <span>The header row must match the @inflowColumns.Rows.Count configured template columns.</span>
+                                <button class="btn btn-primary" type="button" disabled>
+                                    <i class="fa-solid fa-folder-open"></i>Choose Excel file
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="preview-dropzone">
+                                <i class="fa-solid fa-cloud-arrow-down"></i>
+                                <strong>@ApsMetadata.Cell(config, "apiendpoint")</strong>
+                                <span>
+                                    @(Convert.ToString(config["scheduletype"]) == "2"
+                                        ? "Runs every " + ApsMetadata.Cell(config, "everyminutes") + " minutes"
+                                        : "Runs daily at " + ApsMetadata.Cell(config, "scheduletime"))
+                                    &middot; last status @ApsMetadata.Cell(config, "apistatus")
+                                </span>
+                                @if (headers.Rows.Count > 0)
+                                {
+                                    <span class="preview-muted">
+                                        @headers.Rows.Count request header(s) configured. Values are secrets and are never shown.
+                                    </span>
+                                }
+                            </div>
+                        }
+
+                        <div class="section-title-row" style="margin-top:16px">
+                            <div>
+                                <strong style="font-size:12px">Expected columns</strong>
+                                <span class="input-help">Taken from the configured template.</span>
+                            </div>
+                            <span class="badge badge-neutral">@inflowColumns.Rows.Count columns</span>
+                        </div>
+
+                        <div class="preview-chips">
+                            @foreach (DataRow column in inflowColumns.Rows)
+                            {
+                                <span class="badge badge-neutral">@ApsMetadata.Cell(column, "columnname")</span>
+                            }
+                        </div>
+
+                        <div class="section-title-row" style="margin-top:16px">
+                            <div><strong style="font-size:12px">Most recent records</strong></div>
+                            <span class="badge badge-success">In Inbox</span>
+                        </div>
+
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                    @foreach (DataRow column in inflowColumns.Rows)
+                                    {
+                                        <th>@ApsMetadata.Cell(column, "columnname")</th>
+                                    }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                @if (records.Rows.Count == 0)
+                                {
+                                    <tr><td colspan="@Math.Max(1, inflowColumns.Rows.Count)">No records have been imported yet.</td></tr>
+                                }
+                                else
+                                {
+                                    foreach (DataRow record in records.AsEnumerable().Take(3))
+                                    {
+                                        <tr>
+                                        @foreach (DataRow column in inflowColumns.Rows)
+                                        {
+                                            <td>@ApsMetadata.Cell(record, ApsMetadata.Cell(column, "columnname"))</td>
+                                        }
+                                        </tr>
+                                    }
+                                }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        @if (clients.Rows.Count > 0)
+                        {
+                            <div class="section-title-row" style="margin-top:16px">
+                                <div><strong style="font-size:12px">Clients available at upload</strong></div>
+                            </div>
+                            <div class="preview-chips">
+                                @foreach (DataRow client in clients.Rows)
+                                {
+                                    <span class="badge badge-neutral">@ApsMetadata.Cell(client, "ClientName")</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="card-title">Upload history</h3>
+                        <p class="card-subtitle">Recent inflow batches.</p>
+
+                        <ul class="timeline">
+                        @if (uploadHistory.Rows.Count == 0)
+                        {
+                            <li><span>No batches have been uploaded yet.</span></li>
+                        }
+                        else
+                        {
+                            foreach (DataRow batch in uploadHistory.Rows)
+                            {
+                                <li>
+                                    <strong>@ApsMetadata.Cell(batch, "filename") &middot; @ApsMetadata.Cell(batch, "recordcount") records</strong>
+                                    <span>
+                                        @ApsMetadata.Cell(batch, "status") &middot;
+                                        @ApsMetadata.Cell(batch, "uploadedby") &middot;
+                                        @Convert.ToDateTime(batch["uploadedon"]).ToString("dd MMM yyyy · HH:mm")
+                                        @if (ApsMetadata.HasColumn(uploadHistory, "ClientName"))
+                                        {
+                                            <text> &middot; @ApsMetadata.Cell(batch, "ClientName")</text>
+                                        }
+                                    </span>
+                                </li>
+                            }
+                        }
+                        </ul>
+
+                        <h3 class="card-title" style="margin-top:18px">Configuration changes</h3>
+                        <ul class="timeline">
+                        @if (configHistory.Rows.Count == 0)
+                        {
+                            <li><span>No configuration changes recorded yet.</span></li>
+                        }
+                        else
+                        {
+                            foreach (DataRow entry in configHistory.Rows)
+                            {
+                                <li>
+                                    <strong>@ApsMetadata.Cell(entry, "configitem")</strong>
+                                    <span>
+                                        @ApsMetadata.Cell(entry, "detail") &middot;
+                                        @ApsMetadata.Cell(entry, "actionby") &middot;
+                                        @Convert.ToDateTime(entry["actiondt"]).ToString("dd MMM · HH:mm")
+                                    </span>
+                                </li>
+                            }
+                        }
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        }
+        break;
+    }
+}
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+(window.apsReady = window.apsReady || []).push(function ($) {
+    'use strict';
+
+    // Only Detail Setup has an inner tab strip, and it mirrors Inbox Detail.
+    // The seven preview sections switch by navigation, not script.
+    $('#detailPreviewTabs').on('click', '.tab-button', function (event) {
+        event.preventDefault();
+        var dtid = String($(this).data('detail-tab'));
+
+        $('#detailPreviewTabs .tab-button').removeClass('active');
+        $(this).addClass('active');
+
+        $('.detail-preview-pane').removeClass('active')
+            .filter('[data-detail-pane="' + dtid + '"]').addClass('active');
+    });
+
+    $('#previewRefresh').on('click', function () {
+        window.location.reload();
+    });
+});
+</script>
+}

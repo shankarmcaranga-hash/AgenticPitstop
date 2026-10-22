@@ -1,0 +1,155 @@
+﻿@{
+    ViewBag.Title = "Inbox";
+
+    var columns = (List<string>)ViewBag.Columns;
+    var records = (DataTable)ViewBag.Records;
+    var kpi = (DataTable)ViewBag.Kpi;
+    var statuses = (List<string>)ViewBag.Statuses;
+
+    int CountFor(string status) => kpi.AsEnumerable()
+        .Where(r => string.Equals(Convert.ToString(r["reviewstatus"]), status, StringComparison.OrdinalIgnoreCase))
+        .Select(r => Convert.ToInt32(r["recordcount"]))
+        .FirstOrDefault();
+
+    ViewData["PageTitle"] = "Inbox";
+    ViewData["PageSubtitle"] = "Review work generated from the columns an Admin selected in Inbox Setup.";
+    ViewData["PageBreadcrumb"] = "Work / Inbox";
+    ViewData["PageActions"] = $"<span class=\"badge badge-info\">Configured columns: {columns.Count}</span>";
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+@if (columns.Count == 0)
+{
+    <div class="card">
+        <div class="card-body">
+            @{
+                ViewData["EmptyIcon"] = "fa-table-columns";
+                ViewData["EmptyHeading"] = "The Inbox has no columns yet";
+                ViewData["EmptyMessage"] = ViewBag.CurrentAccessType == ApsIdentity.RoleAdmin
+                    ? "Open Configuration → Inbox Setup and choose which template columns this screen should show."
+                    : "An Admin needs to choose the visible columns in Configuration → Inbox Setup.";
+            }
+            @await Html.PartialAsync("_EmptyState")
+            @if (ViewBag.CurrentAccessType == ApsIdentity.RoleAdmin)
+            {
+                <div class="form-actions">
+                    <a class="btn btn-primary" asp-controller="Configuration" asp-action="Index"
+                       asp-route-tab="inbox-setup">
+                        <i class="fa-solid fa-sliders"></i>Open Inbox Setup
+                    </a>
+                </div>
+            }
+        </div>
+    </div>
+}
+else
+{
+<div class="grid grid-4" style="margin-bottom:16px">
+    <div class="card kpi-card">
+        <span class="kpi-label">Pending review</span>
+        <span class="kpi-value">@CountFor("Pending Review")</span>
+        <div class="kpi-trend">Awaiting human action</div>
+    </div>
+    <div class="card kpi-card">
+        <span class="kpi-label">Needs clarification</span>
+        <span class="kpi-value">@CountFor("Needs Clarification")</span>
+        <div class="kpi-trend">Requires follow-up</div>
+    </div>
+    <div class="card kpi-card">
+        <span class="kpi-label">Approved</span>
+        <span class="kpi-value">@CountFor("Approved")</span>
+        <div class="kpi-trend">Completed successfully</div>
+    </div>
+    <div class="card kpi-card">
+        <span class="kpi-label">AI processing</span>
+        <span class="kpi-value">@CountFor("AI Processing")</span>
+        <div class="kpi-trend">Agent work in progress</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <form class="toolbar" method="get" asp-action="Index">
+            <div class="toolbar-left">
+                <input type="search" name="search" value="@ViewBag.Search"
+                       placeholder="Search configured columns..." aria-label="Search records" />
+                <select name="status" aria-label="Filter by status" onchange="this.form.submit()">
+                    <option value="All" selected="@(((string)ViewBag.Status) == "All")">All</option>
+                    @foreach (var status in statuses)
+                    {
+                        <option value="@status" selected="@(((string)ViewBag.Status) == status)">@status</option>
+                    }
+                </select>
+                <button class="btn btn-sm" type="submit"><i class="fa-solid fa-magnifying-glass"></i>Search</button>
+            </div>
+            <div class="toolbar-right">
+                <a class="btn" asp-action="Index"><i class="fa-solid fa-filter-circle-xmark"></i>Clear filters</a>
+                <span class="badge badge-neutral">@records.Rows.Count records</span>
+            </div>
+        </form>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>IFDID</th>
+                        @foreach (var column in columns)
+                        {
+                            <th>@column</th>
+                        }
+                        <th>Status</th>
+                        <th>View</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @if (records.Rows.Count == 0)
+                {
+                    <tr><td colspan="@(columns.Count + 3)">No records match these filters.</td></tr>
+                }
+                else
+                {
+                    foreach (DataRow record in records.Rows)
+                    {
+                        var status = ApsMetadata.Cell(record, "reviewstatus");
+                        <tr>
+                            <td><strong>#@record["ifdid"]</strong></td>
+                            @foreach (var column in columns)
+                            {
+                                @* The column set comes from configuration, so a column may
+                                   have been dropped by a newer template. Render blank
+                                   rather than throwing. *@
+                                <td>@ApsMetadata.Cell(record, column)</td>
+                            }
+                            <td>
+                                <span class="badge @BadgeFor(status)">@status</span>
+                            </td>
+                            <td>
+                                <a class="btn btn-sm btn-primary"
+                                   asp-action="Detail" asp-route-id="@record["ifdid"]">View</a>
+                            </td>
+                        </tr>
+                    }
+                }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="pagination">
+            <span>Showing @records.Rows.Count records</span>
+        </div>
+    </div>
+</div>
+}
+
+@functions {
+    static string BadgeFor(string status)
+    {
+        var value = (status ?? string.Empty).ToLowerInvariant();
+        if (value.Contains("approved")) return "badge-success";
+        if (value.Contains("reject")) return "badge-danger";
+        if (value.Contains("pending") || value.Contains("clarification") || value.Contains("processing"))
+            return "badge-warning";
+        return "badge-neutral";
+    }
+}

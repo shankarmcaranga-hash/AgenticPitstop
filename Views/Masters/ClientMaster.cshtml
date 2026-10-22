@@ -1,0 +1,220 @@
+@using System.Data
+@{
+    ViewBag.Title = "Client Master";
+    var clients = (DataTable)ViewBag.Clients ?? new DataTable();
+
+    ViewData["PageTitle"] = "Client Master";
+    ViewData["PageSubtitle"] = "The clients this portal serves. A use case belongs to one client, and the client code becomes the first half of every use case code.";
+    ViewData["PageBreadcrumb"] = "Administration / Client Master";
+    ViewData["PageActions"] = "<button class=\"btn btn-primary\" id=\"addClientButton\">" +
+                              "<i class=\"fa-solid fa-plus\"></i>Add client</button>";
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+<div class="grid layout-2-1">
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title-row">
+                <div>
+                    <h2 class="card-title">Clients</h2>
+                    <p class="card-subtitle">Edit a client, or switch it off when it is no longer served.</p>
+                </div>
+                <span class="badge badge-neutral">@clients.Rows.Count clients</span>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (clients.Rows.Count == 0)
+            {
+                ViewData["EmptyIcon"] = "fa-building";
+                ViewData["EmptyHeading"] = "No clients yet";
+                ViewData["EmptyMessage"] = "Add the first client, then create its use cases on the Use Case Master screen.";
+                @await Html.PartialAsync("_EmptyState")
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Code</th><th>Client</th><th>Status</th><th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (DataRow client in clients.Rows)
+                        {
+                            var active = Convert.ToByte(client["IsActive"]) == 1;
+                            <tr>
+                                <td><strong>@client["ClientCode"]</strong></td>
+                                <td>@client["ClientName"]</td>
+                                <td>
+                                    <span class="badge @(active ? "badge-success" : "badge-danger")">
+                                        @(active ? "Active" : "Inactive")
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="actions-cell">
+                                        <button class="btn btn-sm" data-action="edit-client"
+                                                data-cid="@client["ClientID"]"
+                                                data-code="@client["ClientCode"]"
+                                                data-name="@client["ClientName"]">Edit</button>
+                                        <button class="btn btn-sm" data-action="toggle-client"
+                                                data-cid="@client["ClientID"]"
+                                                data-name="@client["ClientName"]">
+                                            @(active ? "Inactivate" : "Activate")
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title-row">
+                <div>
+                    <h2 class="card-title" id="clientFormTitle">New client</h2>
+                    <p class="card-subtitle">The code identifies this client everywhere else.</p>
+                </div>
+            </div>
+        </div>
+        <div class="card-body">
+            <input type="hidden" id="clientId" value="0" />
+
+            <div class="form-group">
+                <label for="clientCode">Client code</label>
+                <input id="clientCode" maxlength="20" placeholder="CWA" autocomplete="off" />
+                <span class="input-help">
+                    Up to 20 characters, letters and underscore only. It is joined to the
+                    process code to form the use case code, so a space or digit would break it.
+                </span>
+            </div>
+
+            <div class="form-group">
+                <label for="clientName">Client name</label>
+                <input id="clientName" maxlength="200" placeholder="Continental Western Assurance"
+                       autocomplete="off" />
+                <span class="input-help">
+                    Letters and underscore only. Shown in every client picker and in the use case name.
+                </span>
+            </div>
+
+            <div class="form-group">
+                <span class="input-help">
+                    A new client is active straight away. Use Inactivate in the list to switch one off.
+                </span>
+            </div>
+
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <button class="btn btn-primary" id="saveClientButton">
+                        <i class="fa-solid fa-floppy-disk"></i>Save client
+                    </button>
+                    <button class="btn" id="cancelClientButton">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+    (window.apsReady = window.apsReady || []).push(function ($) {
+        'use strict';
+
+            var saveUrl = '@Url.Action("SaveClient", "Masters")';
+            var toggleUrl = '@Url.Action("ToggleClient", "Masters")';
+
+            // Characters are dropped as they are typed or pasted, so neither field can
+            // hold a value the save would refuse. The checks on Save and in SQL still
+            // decide - this only saves the user a round trip.
+            $('#clientCode, #clientName').on('input', function () {
+                var cleaned = this.value.replace(/[^A-Za-z_]/g, '');
+                if (cleaned !== this.value) { this.value = cleaned; }
+            });
+
+            function reset() {
+            $('#clientId').val('0');
+            $('#clientCode').val('');
+            $('#clientName').val('');
+            $('#clientFormTitle').text('New client');
+        }
+
+        function reload() {
+            window.setTimeout(function () { window.location.reload(); }, 600);
+        }
+
+        $('#addClientButton, #cancelClientButton').on('click', function () {
+            reset();
+            $('#clientCode').trigger('focus');
+        });
+
+        $(document).on('click', '[data-action="edit-client"]', function () {
+            var $button = $(this);
+            $('#clientId').val(String($button.data('cid')));
+            $('#clientCode').val(String($button.data('code')));
+            $('#clientName').val(String($button.data('name')));
+            $('#clientFormTitle').text('Edit client');
+            $('#clientName').trigger('focus');
+        });
+
+        $(document).on('click', '[data-action="toggle-client"]', function () {
+            var $button = $(this);
+            var id = String($button.data('cid'));
+            var name = String($button.data('name'));
+
+            APS.confirmAction('Confirm',
+                'Change the status of ' + name + '?', 'Continue', function () {
+                    APS.post(toggleUrl, { clientId: id }).then(function (response) {
+                        if (!response.success) { return; }
+                        APS.toast(response.message, 'success');
+                        reload();
+                    });
+                });
+        });
+
+        $('#saveClientButton').on('click', function () {
+            var code = String($('#clientCode').val() || '').trim();
+            var name = String($('#clientName').val() || '').trim();
+
+            if (!code) {
+                APS.toast('Enter a client code.', 'error');
+                $('#clientCode').trigger('focus');
+                return;
+            }
+
+            if (!/^[A-Za-z_]+$/.test(code)) {
+                APS.toast('Use letters and underscore only in the client code.', 'error');
+                $('#clientCode').trigger('focus');
+                return;
+            }   
+
+            if (!name) {
+                APS.toast('Enter a client name.', 'error');
+                $('#clientName').trigger('focus');
+                return;
+            }
+
+            if (!/^[A-Za-z_]+$/.test(name)) {
+                APS.toast('Use letters and underscore only in the client name.', 'error');
+                $('#clientName').trigger('focus');
+                return;
+            }
+            APS.busy(this, APS.post(saveUrl, {
+                clientId: Number($('#clientId').val()) || 0,
+                clientCode: code,
+                clientName: name
+            })).then(function (response) {
+                if (!response.success) { return; }
+                APS.toast(response.message, 'success');
+                reload();
+            });
+        });
+    });
+</script>
+}

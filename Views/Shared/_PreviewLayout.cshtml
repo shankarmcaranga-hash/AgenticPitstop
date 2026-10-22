@@ -1,0 +1,79 @@
+@{
+    var customer = Context.RequestServices.GetRequiredService<IConfiguration>()["Aps:CustomerName"];
+}
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@(ViewBag.Title ?? "Configuration preview")</title>
+
+    @* Every asset is served from this origin. No CDN references anywhere. *@
+    <link rel="stylesheet" href="~/lib/fontawesome/css/fontawesome.min.css" />
+    <link rel="stylesheet" href="~/lib/fontawesome/css/solid.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" />
+    <link rel="stylesheet" href="~/css/preview.css" />
+</head>
+<body>
+<div class="app-shell" id="appShell">
+
+    @* The header is the portal's, unchanged, so the preview is recognisably the
+       same product rather than a bare page. *@
+    <header class="topbar">
+        <div class="brand-wrap">
+            <div class="brand-mark" aria-hidden="true"><i class="fa-solid fa-flag-checkered"></i></div>
+            <div class="brand-copy">
+                <strong>Agentic PITSTOP</strong>
+                <span>@(string.IsNullOrWhiteSpace(customer) ? "Human-in-the-loop operations" : customer)</span>
+            </div>
+        </div>
+
+        <div class="global-search">
+            <span aria-hidden="true"><i class="fa-solid fa-eye"></i></span>
+            <input type="search" value="Configuration preview" aria-label="Preview mode" readonly disabled />
+        </div>
+
+        <div class="topbar-actions">
+            <button class="icon-button" id="themeToggle" title="Switch light and dark theme"
+                    aria-label="Switch theme">
+                <i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>
+            </button>
+            <div class="user-menu">
+                <div class="avatar">@ViewBag.CurrentUserInitials</div>
+                <div class="user-copy">
+                    <strong>@ViewBag.CurrentUserName</strong>
+                    <span>@ViewBag.CurrentRoleName</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    @* The sidebar is deliberately empty. A preview tab that could navigate into
+       the live portal would let an Admin leave preview without realising it,
+       and every link would need a second set of active-state rules. The element
+       stays so the page keeps the portal's grid and proportions. *@
+    <aside class="sidebar" id="sidebar" aria-label="Preview mode">
+        <nav id="primaryNav" aria-hidden="true"></nav>
+        <div class="sidebar-note">
+            <span class="status-dot success"></span>
+            <div><strong>Preview mode</strong><small>Navigation disabled</small></div>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <section id="screenRoot" aria-live="polite">
+            @RenderBody()
+        </section>
+    </main>
+
+    <footer class="footer">2026 - &copy; All rights reserved</footer>
+</div>
+
+<div id="modalRoot" class="modal-root" aria-hidden="true"></div>
+<div id="toastRoot" class="toast-root" aria-live="polite" aria-atomic="true"></div>
+
+<script src="~/lib/jquery/jquery.min.js"></script>
+<script src="~/js/aps.core.js"></script>
+@await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

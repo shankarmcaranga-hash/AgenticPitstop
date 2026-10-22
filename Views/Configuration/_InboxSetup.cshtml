@@ -1,0 +1,309 @@
+@using System.Text.Json
+@{
+    var inflowColumns = (DataTable)ViewBag.InflowColumns ?? new DataTable();
+    var selected = (List<string>)ViewBag.InboxColumns ?? new List<string>();
+    var previewRecords = (DataTable)ViewBag.PreviewRecords ?? new DataTable();
+
+    // Same two values the Inflow Source tab already uses, so the selection
+    // carried on the query string is honoured here too.
+    var useCases = (DataTable)ViewBag.UseCases ?? new DataTable();
+    var useCaseId = (int)(ViewBag.UseCaseID ?? 0);
+
+    var templateFields = inflowColumns.AsEnumerable()
+        .OrderBy(r => Convert.ToInt32(r["SortOrder"]))
+        .Select(r => new    
+        {
+            code = Convert.ToString(r["FieldCode"]),
+            label = Convert.ToString(r["ExcelColumnName"]),
+            type = Convert.ToString(r["DataType"]),
+            inInbox = r["ShowInInbox"] != DBNull.Value && Convert.ToBoolean(r["ShowInInbox"])
+        })
+        .Where(f => !string.IsNullOrWhiteSpace(f.code))
+        .GroupBy(f => f.code, StringComparer.OrdinalIgnoreCase)
+        .Select(g => g.First())
+        .ToList();
+
+    var labels = templateFields.ToDictionary(f => f.code, f => f.label, StringComparer.OrdinalIgnoreCase);
+
+    var savedLayout = selected.Where(c => labels.ContainsKey(c)).ToList();
+    var isDefaultLayout = savedLayout.Count == 0;
+    var initialOrder = isDefaultLayout
+        ? templateFields.Where(f => f.inInbox).Select(f => f.code).ToList()
+        : savedLayout;
+
+    var sampleRows = new List<Dictionary<string, string>>();
+    foreach (DataRow record in previewRecords.Rows)
+    {
+        if (sampleRows.Count == 3) break;
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            using var document = JsonDocument.Parse(ApsMetadata.Cell(record, "RowDataJson"));
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                values[property.Name] = property.Value.ValueKind == JsonValueKind.String
+                    ? property.Value.GetString() ?? string.Empty
+                    : property.Value.ToString();
+            }
+        }
+        catch (Exception) { }
+        values["__id"] = ApsMetadata.Cell(record, "InflowDataID");
+        values["__status"] = ApsMetadata.Cell(record, "ReviewStatusCode");
+        sampleRows.Add(values);
+    }
+}
+
+@* The use case is chosen once for the whole workspace, at the top of the
+   Configuration screen. Every column chosen below belongs to it. *@
+<div class="cfg-split">
+    <div class="card">
+        <div class="is-bar">
+            <div>
+                <h2 class="card-title">Inbox screen setup</h2>
+                <p class="card-subtitle">
+                    Choose which template columns the Inbox shows and their order.
+                    ID, Status and View are always included.
+                </p>
+            </div>
+            <div class="is-bar-actions">
+                <span class="badge badge-warning" id="inboxDirty" hidden>Unsaved changes</span>
+                <button class="btn btn-primary" id="saveInboxConfig">
+                    <i class="fa-solid fa-floppy-disk"></i>Save layout
+                </button>
+            </div>
+        </div>
+
+        <div class="card-body">
+            @if (templateFields.Count == 0)
+            {
+                <div class="is-none">
+                    <span class="is-none-icon"><i class="fa-solid fa-table-columns"></i></span>
+                    <strong>No template columns yet</strong>
+                    <span>Upload an Excel template in step 1 and apply its columns, then come back here.</span>
+                </div>
+            }
+            else
+            {
+                @if (isDefaultLayout)
+                {
+                    <div class="callout" style="margin-bottom:14px">
+                        <i class="fa-solid fa-circle-info"></i>
+                        No layout saved yet, so the Inbox currently shows every template column in template order.
+                    </div>
+                }
+                <div id="inboxValidation"></div>
+
+                <div class="is-picker">
+                    <section class="is-pane">
+                        <header class="is-pane-head">
+                            <div>
+                                <strong>Template columns</strong>
+                                <span class="input-help"><span id="selectedCount"></span> of @templateFields.Count selected</span>
+                            </div>
+                            <div class="is-pane-tools">
+                                <button type="button" class="btn btn-sm" data-pick="all">Select all</button>
+                                <button type="button" class="btn btn-sm" data-pick="none">Clear</button>
+                            </div>
+                        </header>
+                        <div class="is-search">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="search" id="columnSearch" placeholder="Find a column" aria-label="Find a column" />
+                        </div>
+                        <div class="is-list">
+                            @foreach (var field in templateFields)
+                            {
+                                <label class="is-check" data-name="@field.label.ToLowerInvariant() @field.code.ToLowerInvariant()">
+                                    <input type="checkbox" class="inbox-column-check" data-column="@field.code"
+                                           checked="@initialOrder.Contains(field.code, StringComparer.OrdinalIgnoreCase)" />
+                                    <span class="is-check-text">
+                                        <strong>@field.label</strong>
+                                        <small>@field.type</small>
+                                    </span>
+                                </label>
+                            }
+                        </div>
+                    </section>
+
+                    <section class="is-pane">
+                        <header class="is-pane-head">
+                            <div>
+                                <strong>Shown in this order</strong>
+                                <span class="input-help">Use the arrows to reorder.</span>
+                            </div>
+                        </header>
+                        <ul class="is-order" id="reorderColumns"></ul>
+                    </section>
+                </div>
+            }
+        </div>
+    </div>
+
+    <aside class="cfg-preview">
+        <div class="card">
+            <div class="is-bar">
+                <div>
+                    <h2 class="card-title">Preview</h2>
+                    <p class="card-subtitle">The Inbox screen a reviewer will see.</p>
+                </div>
+                <span class="badge badge-neutral" id="inboxPreviewState"></span>
+            </div>
+            <div class="card-body">
+                <div class="is-preview">
+                    <div class="is-kpis">
+                        <div class="is-kpi is-kpi-warning"><span>Pending Review</span><strong>—</strong></div>
+                        <div class="is-kpi is-kpi-info"><span>Needs Clarification</span><strong>—</strong></div>
+                        <div class="is-kpi is-kpi-success"><span>Approved</span><strong>—</strong></div>
+                        <div class="is-kpi is-kpi-danger"><span>Validation Failed</span><strong>—</strong></div>
+                    </div>
+                    <div class="is-toolbar">
+                        <span class="is-fake-input"><i class="fa-solid fa-magnifying-glass"></i>Search records</span>
+                        <span class="is-fake-input is-fake-select">All statuses<i class="fa-solid fa-chevron-down"></i></span>
+                    </div>
+                    <div id="inboxPreview"></div>
+                </div>
+            </div>
+        </div>
+    </aside>
+</div>
+
+<script nonce="@Context.ApsNonce()">
+    (window.apsReady = window.apsReady || []).push(function ($) {
+        'use strict';
+
+        var order = @Html.Raw(JsonSerializer.Serialize(initialOrder));
+        var savedOrder = order.slice();
+        var labels = @Html.Raw(JsonSerializer.Serialize(labels));
+        var sampleRows = @Html.Raw(JsonSerializer.Serialize(sampleRows));
+        var savedStateText = '@(isDefaultLayout ? "Default layout" : "Saved layout")';
+
+        function label(code) { return labels[code] || code; }
+        function isChanged() { return order.join('|') !== savedOrder.join('|'); }
+
+        function renderOrder() {
+            var $list = $('#reorderColumns');
+
+            $list.html(order.length ? order.map(function (column, index) {
+                return '<li class="is-order-item">' +
+                    '<span class="is-pos">' + (index + 1) + '</span>' +
+                    '<span class="is-order-name">' + APS.escapeHtml(label(column)) + '</span>' +
+                    '<span class="is-order-tools">' +
+                        '<button type="button" class="btn btn-sm" data-action="move-up" data-index="' + index + '"' +
+                            (index === 0 ? ' disabled' : '') + ' aria-label="Move up"><i class="fa-solid fa-arrow-up"></i></button>' +
+                        '<button type="button" class="btn btn-sm" data-action="move-down" data-index="' + index + '"' +
+                            (index === order.length - 1 ? ' disabled' : '') + ' aria-label="Move down"><i class="fa-solid fa-arrow-down"></i></button>' +
+                        '<button type="button" class="btn btn-sm" data-action="drop-column" data-column="' + APS.escapeAttr(column) + '" aria-label="Remove">' +
+                            '<i class="fa-solid fa-xmark"></i></button>' +
+                    '</span></li>';
+            }).join('') : '<li class="is-order-empty">No columns selected yet.</li>');
+
+            $('#selectedCount').text(order.length);
+            $('#saveInboxConfig').prop('disabled', order.length === 0);
+            $('#inboxValidation').html(order.length ? ''
+                : '<div class="callout callout-danger" style="margin-bottom:14px">Select at least one column before saving.</div>');
+
+            var changed = isChanged();
+            $('#inboxDirty').prop('hidden', !changed);
+            $('#inboxPreviewState')
+                .text(changed ? 'Unsaved changes' : savedStateText)
+                .toggleClass('badge-warning', changed)
+                .toggleClass('badge-neutral', !changed);
+
+            renderPreview();
+        }
+
+        function renderPreview() {
+            if (!order.length) {
+                $('#inboxPreview').html('<div class="is-preview-empty"><i class="fa-solid fa-table-columns"></i>' +
+                    '<span>Select columns to see the Inbox grid.</span></div>');
+                return;
+            }
+
+            var span = order.length + 3;
+            var head = '<th>ID</th>' + order.map(function (column) {
+                return '<th>' + APS.escapeHtml(label(column)) + '</th>';
+            }).join('') + '<th>Status</th><th></th>';
+
+            var body = sampleRows.length
+                ? sampleRows.map(function (row) {
+                    return '<tr><td>' + APS.escapeHtml(row.__id) + '</td>' +
+                        order.map(function (column) {
+                            var value = row[column];
+                            return '<td>' + APS.escapeHtml(value === undefined || value === null ? '' : value) + '</td>';
+                        }).join('') +
+                        '<td><span class="badge ' + APS.statusBadgeClass(row.__status) + '">' +
+                        APS.escapeHtml(row.__status) + '</span></td>' +
+                        '<td><span class="is-fake-btn">View</span></td></tr>';
+                  }).join('')
+                : '<tr class="is-ghost"><td colspan="' + span + '">&nbsp;</td></tr>' +
+                  '<tr class="is-ghost"><td colspan="' + span + '">&nbsp;</td></tr>';
+
+            $('#inboxPreview').html('<div class="is-grid"><table><thead><tr>' + head + '</tr></thead>' +
+                '<tbody>' + body + '</tbody></table></div>' +
+                (sampleRows.length ? '' : '<p class="input-help" style="margin-top:8px">No records imported yet. ' +
+                    'Striped rows show where data will appear.</p>'));
+        }
+
+        $(document).on('change', '.inbox-column-check', function () {
+            var column = $(this).data('column');
+            if (this.checked) {
+                if (order.indexOf(column) < 0) { order.push(column); }
+            } else {
+                order = order.filter(function (value) { return value !== column; });
+            }
+            renderOrder();
+        });
+
+        $(document).on('click', '[data-action="move-up"], [data-action="move-down"]', function () {
+            var index = Number($(this).data('index'));
+            var target = $(this).data('action') === 'move-up' ? index - 1 : index + 1;
+            if (target < 0 || target >= order.length) { return; }
+            var moved = order[index];
+            order[index] = order[target];
+            order[target] = moved;
+            renderOrder();
+        });
+
+        $(document).on('click', '[data-action="drop-column"]', function () {
+            var column = $(this).data('column');
+            order = order.filter(function (value) { return value !== column; });
+            $('.inbox-column-check[data-column="' + column + '"]').prop('checked', false);
+            renderOrder();
+        });
+
+        $(document).on('click', '[data-pick]', function () {
+            var all = $(this).data('pick') === 'all';
+            order = [];
+            $('.inbox-column-check').each(function () {
+                this.checked = all;
+                if (all) { order.push($(this).data('column')); }
+            });
+            renderOrder();
+        });
+
+        $(document).on('input', '#columnSearch', function () {
+            var term = String($(this).val() || '').toLowerCase().trim();
+            $('.is-check').each(function () {
+                $(this).toggle(!term || String($(this).data('name')).indexOf(term) >= 0);
+            });
+        });
+
+        $('#saveInboxConfig').on('click', function () {
+            if (!order.length) {
+                APS.toast('Select at least one column before saving.', 'error');
+                return;
+            }
+            APS.busy(this, APS.post('@Url.Action("SaveInboxConfig", "Configuration")', {
+                columnsJson: JSON.stringify(order),
+                useCaseId: @((int)(ViewBag.UseCaseID ?? 0))
+            })).then(function (response) {
+                if (!response.success) { return; }
+                APS.toast(response.message, 'success');
+                savedOrder = order.slice();
+                savedStateText = 'Saved layout';
+                renderOrder();
+            });
+                });
+
+        renderOrder();
+    });
+</script>

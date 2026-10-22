@@ -1,0 +1,534 @@
+@using System.Text.Json
+@{
+    var collections = (DataTable)ViewBag.Collections ?? new DataTable();
+    var useCaseTable = (DataTable)ViewBag.UseCases ?? new DataTable();
+    var referenceColumns = (DataTable)ViewBag.ReferenceColumns ?? new DataTable();
+    var currentUseCaseId = (int)(ViewBag.UseCaseID ?? 0);
+
+    var useCaseList = useCaseTable.AsEnumerable().Select(r => new
+    {
+        id = ApsMetadata.Cell(r, "UseCaseID"),
+        label = string.IsNullOrWhiteSpace(ApsMetadata.Cell(r, "UseCaseCode"))
+            ? ApsMetadata.Cell(r, "UseCaseName")
+            : ApsMetadata.Cell(r, "UseCaseCode") + " - " + ApsMetadata.Cell(r, "UseCaseName")
+    }).ToList();
+}
+
+<div class="cfg-split">
+    <div class="card">
+        <div class="collection-layout">
+            <div class="collection-list">
+                <div class="section-title-row" style="padding:5px 5px 10px">
+                    <div>
+                        <strong style="font-size:12px">Collections</strong>
+                        <span class="input-help">One database table each</span>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary" id="addCollection" title="New collection">
+                        <i class="fa-solid fa-plus"></i>
+                    </button>
+                </div>
+
+                @foreach (DataRow collection in collections.Rows)
+                {
+                    var generated = ApsMetadata.Cell(collection, "IsGenerated") == "1";
+                    <button type="button" class="collection-item" data-cid="@ApsMetadata.Cell(collection, "CollectionID")">
+                        <strong>@ApsMetadata.Cell(collection, "CollectionName")</strong>
+                        <span class="input-help">@ApsMetadata.Cell(collection, "TableName")</span>
+                        <span class="cc-item-meta">
+                            <span class="badge @(generated ? "badge-success" : "badge-neutral")">@(generated ? "Table created" : "Draft")</span>
+                            <span class="input-help">@ApsMetadata.Cell(collection, "UseCaseCode")</span>
+                        </span>
+                    </button>
+                }
+            </div>
+
+            <div class="collection-editor" id="collectionEditor"></div>
+        </div>
+    </div>
+
+    <aside class="cfg-preview">
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title-row">
+                    <div>
+                        <h2 class="card-title">Preview</h2>
+                        <p class="card-subtitle">The table that <strong>Create table</strong> will build.</p>
+                    </div>
+                    <span class="badge badge-neutral">Live</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="pv-frame">
+                    <div class="pv-label">Table structure</div>
+                    <div id="collectionStructure"></div>
+                    <div class="pv-label">Create script</div>
+                    <pre class="cc-ddl" id="collectionDdl"></pre>
+                </div>
+            </div>
+        </div>
+    </aside>
+</div>
+
+<script nonce="@Context.ApsNonce()">
+    (window.apsReady = window.apsReady || []).push(function ($) {
+        'use strict';
+
+        var TYPES = {
+            'bigint': 'none', 'int': 'none', 'smallint': 'none', 'tinyint': 'none', 'bit': 'none',
+            'decimal': 'decimal', 'numeric': 'decimal', 'money': 'none', 'smallmoney': 'none',
+            'float': 'none', 'real': 'none',
+            'date': 'none', 'time': 'scale', 'datetime': 'none', 'datetime2': 'scale',
+            'smalldatetime': 'none', 'datetimeoffset': 'scale',
+            'char': 'length', 'varchar': 'length', 'nchar': 'length', 'nvarchar': 'length',
+            'binary': 'length', 'varbinary': 'length',
+            'uniqueidentifier': 'none', 'xml': 'none'
+        };
+        var TYPE_GROUPS = [
+            ['Exact numeric', ['bigint', 'int', 'smallint', 'tinyint', 'bit', 'decimal', 'numeric', 'money', 'smallmoney']],
+            ['Approximate numeric', ['float', 'real']],
+            ['Date and time', ['date', 'time', 'datetime', 'datetime2', 'smalldatetime', 'datetimeoffset']],
+            ['Character strings', ['char', 'varchar', 'nchar', 'nvarchar']],
+            ['Binary', ['binary', 'varbinary']],
+            ['Other', ['uniqueidentifier', 'xml']]
+        ];
+        var CONSTRAINTS = [['NONE', 'None'], ['FK', 'Foreign key'], ['UQ', 'Unique'], ['C', 'Check']];
+
+        var useCases = @Html.Raw(JsonSerializer.Serialize(useCaseList));
+        var refRows = @Html.Raw(JsonSerializer.Serialize(ApsMetadata.ToList(referenceColumns)));
+        var refs = {};
+        refRows.forEach(function (r) { (refs[r.TableName] = refs[r.TableName] || []).push(r); });
+
+        var urls = {
+            load: '@Url.Action("Collection", "Configuration")',
+            save: '@Url.Action("SaveCollection", "Configuration")',
+            generate: '@Url.Action("GenerateCollection", "Configuration")',
+            back: '@Html.Raw(Url.Action("Index", "Configuration", new { tab = "collections", useCaseId = currentUseCaseId }))'
+        };
+
+        var current = null;
+
+        // --- small helpers ---------------------------------------------------------
+        function esc(v) { return APS.escapeHtml(v === null || v === undefined ? '' : v); }
+        function cleanName() { return ($('#collectionName').val() || '').replace(/[^A-Za-z0-9]/g, ''); }
+        function tableName() { return 'APS_Collection_' + (cleanName() || '<Name>'); }
+        function keyColumn() { return (cleanName() || '<Name>') + 'ID'; }
+        function formatDate(v) { if (!v) { return ''; } var d = new Date(v); return isNaN(d) ? String(v) : d.toLocaleString(); }
+
+        function options(list, selected) {
+            return list.map(function (o) {
+                return '<option value="' + o[0] + '"' + (o[0] === selected ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
+            }).join('');
+        }
+        function typeOptions(selected) {
+            return TYPE_GROUPS.map(function (g) {
+                return '<optgroup label="' + g[0] + '">' + g[1].map(function (t) {
+                    return '<option value="' + t + '"' + (t === selected ? ' selected' : '') + '>' + t + '</option>';
+                }).join('') + '</optgroup>';
+            }).join('');
+        }
+        function useCaseOptions(selected) {
+            return '<option value="">Select a use case</option>' + useCases.map(function (u) {
+                return '<option value="' + esc(u.id) + '"' + (String(u.id) === String(selected) ? ' selected' : '') + '>' +
+                       esc(u.label) + '</option>';
+            }).join('');
+        }
+        function refTableOptions(selected) {
+            return '<option value="">Select table</option>' + Object.keys(refs).sort().map(function (t) {
+                return '<option value="' + esc(t) + '"' + (t === selected ? ' selected' : '') + '>' + esc(t) + '</option>';
+            }).join('');
+        }
+        function refColumnOptions(table, selected) {
+            var cols = refs[table] || [];
+            if (!cols.length) { return '<option value="">Select column</option>'; }
+            return cols.map(function (c) {
+                return '<option value="' + esc(c.ColumnName) + '"' + (c.ColumnName === selected ? ' selected' : '') + '>' +
+                       esc(c.ColumnName) + ' (' + esc(c.KeyType) + ')</option>';
+            }).join('');
+        }
+
+        function typeSql(f) {
+            var kind = TYPES[f.dataType] || 'none';
+            if (kind === 'length') {
+                return f.dataType + '(' + (String(f.length).toUpperCase() === 'MAX' ? 'max' : (f.length || '?')) + ')';
+            }
+            if (kind === 'decimal') { return f.dataType + '(' + (f.precision || 18) + ',' + (f.scale || 0) + ')'; }
+            if (kind === 'scale' && f.scale !== '' && f.scale !== null && f.scale !== undefined) {
+                return f.dataType + '(' + f.scale + ')';
+            }
+            return f.dataType;
+        }
+        function defaultSql(v) {
+            var s = String(v).trim();
+            if (/^(GETDATE|GETUTCDATE|SYSDATETIME|SYSUTCDATETIME|NEWID)\(\)$/i.test(s)) { return s.toUpperCase(); }
+            if (/^-?\d+(\.\d+)?$/.test(s)) { return s; }
+            return "N'" + s.replace(/'/g, "''") + "'";
+        }
+
+        // --- system columns (shown read-only; the server adds them) -------------
+        function systemColumns() {
+            var useCaseId = $('#collectionUseCase').val() || '';
+            return {
+                leading: [
+                    { name: keyColumn(), type: 'int IDENTITY(1,1)', nullable: false, constraint: 'PK' },
+                    { name: 'InflowDataID', type: 'int', nullable: false, constraint: 'FK', refTable: 'APS_InflowData', refColumn: 'InflowDataID' },
+                    { name: 'UseCaseID', type: 'int', nullable: false, constraint: 'FK', refTable: 'APS_UseCaseMaster', refColumn: 'UseCaseID', def: useCaseId }
+                ],
+                trailing: [
+                    { name: 'IsActive', type: 'tinyint', nullable: false, def: '1' },
+                    { name: 'CreatedDate', type: 'datetime', nullable: false, def: 'GETDATE()' },
+                    { name: 'CreatedBy', type: 'varchar(30)', nullable: false },
+                    { name: 'ModifiedDate', type: 'datetime', nullable: true },
+                    { name: 'ModifiedBy', type: 'varchar(30)', nullable: true }
+                ]
+            };
+        }
+
+        // --- field rows ------------------------------------------------------------------
+        function cell(label, html, cls) {
+            return '<div class="cc-cell ' + (cls || '') + '"><label>' + label + '</label>' + html + '</div>';
+        }
+
+        function fieldRow(f) {
+            var lock = f.inTable ? ' disabled' : '';
+            return '' +
+              '<div class="cc-field' + (f.inTable ? ' is-locked' : '') + '" data-intable="' + (f.inTable ? 1 : 0) + '">' +
+                '<div class="cc-line">' +
+                  cell('Field name', '<input class="f-name" maxlength="60" placeholder="e.g. PolicyNumber" value="' + esc(f.name) + '"' + lock + ' />', 'cc-wide') +
+                  cell('Data type', '<select class="f-type"' + lock + '>' + typeOptions(f.dataType || 'varchar') + '</select>') +
+                  cell('Length', '<input class="f-length" placeholder="50 or MAX" value="' + esc(f.length) + '"' + lock + ' />', 'cc-length') +
+                  cell('Precision', '<input class="f-precision" inputmode="numeric" placeholder="18" value="' + esc(f.precision) + '"' + lock + ' />', 'cc-precision') +
+                  cell('Scale', '<input class="f-scale" inputmode="numeric" placeholder="0" value="' + esc(f.scale) + '"' + lock + ' />', 'cc-scale') +
+                  cell('Nulls', '<label class="cc-toggle"><input type="checkbox" class="f-nullable"' + (f.nullable ? ' checked' : '') + lock + ' />Allow</label>', 'cc-narrow') +
+                  '<div class="cc-cell cc-actions">' + (f.inTable
+                      ? '<span class="badge badge-info" title="Already a column in the table">In table</span>'
+                      : '<button type="button" class="btn btn-sm" data-action="remove-field" aria-label="Remove field"><i class="fa-solid fa-trash"></i></button>') +
+                  '</div>' +
+                '</div>' +
+                '<div class="cc-line">' +
+                  cell('Default value', '<input class="f-default" maxlength="200" placeholder="e.g. 0 or GETDATE()" value="' + esc(f.defaultValue) + '"' + lock + ' />') +
+                  cell('Constraint', '<select class="f-constraint"' + lock + '>' + options(CONSTRAINTS, f.constraint || 'NONE') + '</select>') +
+                  cell('Reference table', '<select class="f-reftable"' + lock + '>' + refTableOptions(f.refTable) + '</select>', 'cc-fk') +
+                  cell('Reference column', '<select class="f-refcol"' + lock + '>' + refColumnOptions(f.refTable, f.refColumn) + '</select>', 'cc-fk') +
+                  cell('Check expression', '<input class="f-check" maxlength="500" placeholder="e.g. Amount >= 0" value="' + esc(f.check) + '"' + lock + ' />', 'cc-check cc-wide') +
+                '</div>' +
+                '<div class="cc-cname"></div>' +
+              '</div>';
+        }
+
+        function readField($row) {
+            return {
+                name: ($row.find('.f-name').val() || '').trim(),
+                dataType: $row.find('.f-type').val(),
+                length: ($row.find('.f-length').val() || '').trim(),
+                precision: ($row.find('.f-precision').val() || '').trim(),
+                scale: ($row.find('.f-scale').val() || '').trim(),
+                nullable: $row.find('.f-nullable').is(':checked'),
+                defaultValue: ($row.find('.f-default').val() || '').trim(),
+                constraint: $row.find('.f-constraint').val() || 'NONE',
+                refTable: $row.find('.f-reftable').val() || '',
+                refColumn: $row.find('.f-refcol').val() || '',
+                check: ($row.find('.f-check').val() || '').trim(),
+                inTable: Number($row.data('intable')) === 1
+            };
+        }
+
+        function syncRow($row) {
+            var f = readField($row);
+            var kind = TYPES[f.dataType] || 'none';
+            var isFk = f.constraint === 'FK';
+
+            $row.find('.cc-length').toggleClass('is-hidden', kind !== 'length');
+            $row.find('.cc-precision').toggleClass('is-hidden', kind !== 'decimal');
+            $row.find('.cc-scale').toggleClass('is-hidden', kind !== 'decimal' && kind !== 'scale');
+            $row.find('.cc-fk').toggleClass('is-hidden', !isFk);
+            $row.find('.cc-check').toggleClass('is-hidden', f.constraint !== 'C');
+
+            // A foreign key takes its type from the referenced key.
+            if (!f.inTable) { $row.find('.f-type, .f-length, .f-precision, .f-scale').prop('disabled', isFk); }
+
+            var cname = f.constraint !== 'NONE' && f.name ? tableName() + '_' + f.name + '_' + f.constraint : '';
+            $row.find('.cc-cname').html(cname ? '<i class="fa-solid fa-link"></i> ' + esc(cname) : '');
+        }
+
+        function applyRefType($row) {
+            var table = $row.find('.f-reftable').val();
+            var column = $row.find('.f-refcol').val();
+            var target = (refs[table] || []).filter(function (c) { return c.ColumnName === column; })[0];
+            if (!target) { return; }
+
+            var kind = TYPES[target.DataTypeName] || 'none';
+            $row.find('.f-type').val(target.DataTypeName);
+            $row.find('.f-length').val(kind === 'length' ? (target.ColumnLength === -1 ? 'MAX' : target.ColumnLength) : '');
+            $row.find('.f-precision').val(kind === 'decimal' ? target.NumericPrecision : '');
+            $row.find('.f-scale').val(kind === 'decimal' || kind === 'scale' ? target.NumericScale : '');
+        }
+
+        // --- editor -----------------------------------------------------------------------
+        function render(c, fields) {
+            current = c;
+            var generated = !!c.generated;
+
+            var html = '' +
+              '<div class="section-title-row">' +
+                '<div><h2 class="card-title">' + esc(c.name || 'New collection') + '</h2>' +
+                '<p class="card-subtitle">' + (generated
+                    ? 'Table created ' + esc(formatDate(c.generatedOn)) + '. New fields are added to it; existing columns are never changed or dropped.'
+                    : 'Save the definition, then create the table.') + '</p></div>' +
+                '<div class="cc-toolbar">' +
+                  '<span class="badge ' + (generated ? 'badge-success' : 'badge-neutral') + '">' + (generated ? 'Table created' : 'Draft') + '</span>' +
+                  '<button type="button" class="btn" id="saveCollection"><i class="fa-solid fa-floppy-disk"></i>Save definition</button>' +
+                  '<button type="button" class="btn btn-primary" id="generateCollection"' + (c.id ? '' : ' disabled') + '>' +
+                    '<i class="fa-solid fa-database"></i>' + (generated ? 'Update table' : 'Create table') + '</button>' +
+                '</div>' +
+              '</div>' +
+              '<div class="form-grid" style="margin-top:16px">' +
+                '<div class="form-group"><label>Collection name</label>' +
+                  '<input id="collectionName" maxlength="60" value="' + esc(c.name) + '"' + (generated ? ' disabled' : '') + ' />' +
+                  '<span class="input-help">Letters and numbers only, starting with a letter.' + (generated ? ' Locked once the table exists.' : '') + '</span></div>' +
+                // The use case comes from the shared Client - Process selector at the
+                // top of the workspace. It is carried here so the save payload and the
+                // UseCaseID system column keep reading it from the same place.
+                '<input type="hidden" id="collectionUseCase" value="' + esc(c.useCaseId || '@currentUseCaseId') + '" />' +
+                '<div class="form-group"><label>Table name</label><input id="tableNamePreview" disabled /></div>' +
+                '<div class="form-group"><label>Description</label>' +
+                  '<input id="collectionDescription" maxlength="1000" value="' + esc(c.description) + '" /></div>' +
+              '</div>' +
+              '<div class="cc-system">' +
+                '<div class="cc-system-title"><i class="fa-solid fa-lock"></i>System columns added to every collection table</div>' +
+                '<div class="cc-chips" id="systemChips"></div>' +
+              '</div>' +
+              '<div class="section-title-row" style="margin:18px 0 10px">' +
+                '<div><strong style="font-size:12px">Fields</strong>' +
+                '<span class="input-help">Constraint names follow &lt;TableName&gt;_&lt;ColumnName&gt;_&lt;PK | FK | UQ | C&gt;.</span></div>' +
+                '<button type="button" class="btn btn-sm" id="addField"><i class="fa-solid fa-plus"></i>Add field</button>' +
+              '</div>' +
+              '<div id="collectionFields">' + fields.map(function (f) { return fieldRow(f); }).join('') + '</div>';
+
+            $('#collectionEditor').html(html);
+            refreshAll();
+        }
+
+        function refreshAll() {
+            $('#tableNamePreview').val(tableName());
+
+            var sys = systemColumns();
+            $('#systemChips').html(sys.leading.concat(sys.trailing).map(function (s) {
+                return '<span class="cc-chip">' + esc(s.name) + ' <small>' + esc(s.type) + '</small>' +
+                       (s.constraint ? ' <span class="badge badge-info">' + s.constraint + '</span>' : '') + '</span>';
+            }).join(''));
+
+            $('#collectionFields .cc-field').each(function () { syncRow($(this)); });
+            renderPreview();
+        }
+
+        // --- preview --------------------------------------------------------------------------
+        function renderPreview() {
+            if (!$('#collectionName').length) {
+                $('#collectionStructure').html('<div class="pv-empty"><i class="fa-solid fa-layer-group"></i>' +
+                                               '<span>Select or create a collection.</span></div>');
+                $('#collectionDdl').text('');
+                return;
+            }
+
+            var t = tableName();
+            var sys = systemColumns();
+            var rows = sys.leading.map(function (s) { return s; });
+
+            $('#collectionFields .cc-field').each(function () {
+                var f = readField($(this));
+                if (!f.name) { return; }
+                rows.push({
+                    name: f.name, type: typeSql(f), nullable: f.nullable,
+                    constraint: f.constraint === 'NONE' ? '' : f.constraint,
+                    refTable: f.refTable, refColumn: f.refColumn, def: f.defaultValue, check: f.check
+                });
+            });
+            rows = rows.concat(sys.trailing);
+
+            $('#collectionStructure').html(
+                '<div class="pv-table"><table><thead><tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th></tr></thead><tbody>' +
+                rows.map(function (r) {
+                    var cons = '';
+                    if (r.constraint) {
+                        cons = '<span class="badge badge-info">' + r.constraint + '</span>' +
+                               '<span class="cc-mono">' + esc(t + '_' + r.name + '_' + r.constraint) + '</span>' +
+                               (r.constraint === 'FK' && r.refTable ? '<span class="cc-mono">→ ' + esc(r.refTable + '.' + r.refColumn) + '</span>' : '');
+                    }
+                    if (r.def) { cons += '<span class="cc-mono">DF ' + esc(defaultSql(r.def)) + '</span>'; }
+                    return '<tr><td>' + esc(r.name) + '</td><td class="cc-mono-cell">' + esc(r.type) + '</td>' +
+                           '<td>' + (r.nullable ? 'Yes' : 'No') + '</td><td>' + cons + '</td></tr>';
+                }).join('') + '</tbody></table></div>');
+
+            var ddl = 'CREATE TABLE dbo.[' + t + '] (\n' + rows.map(function (r) {
+                return '    [' + r.name + '] ' + r.type + (r.nullable ? ' NULL' : ' NOT NULL') +
+                       (r.def ? ' CONSTRAINT [' + t + '_' + r.name + '_DF] DEFAULT (' + defaultSql(r.def) + ')' : '');
+            }).join(',\n') + '\n);';
+
+            rows.forEach(function (r) {
+                if (!r.constraint) { return; }
+                var body = r.constraint === 'PK' ? 'PRIMARY KEY CLUSTERED ([' + r.name + '])'
+                         : r.constraint === 'UQ' ? 'UNIQUE ([' + r.name + '])'
+                         : r.constraint === 'FK' ? 'FOREIGN KEY ([' + r.name + ']) REFERENCES dbo.[' + (r.refTable || '?') + '] ([' + (r.refColumn || '?') + '])'
+                         : 'CHECK (' + (r.check || '?') + ')';
+                ddl += '\nALTER TABLE dbo.[' + t + '] ADD CONSTRAINT [' + t + '_' + r.name + '_' + r.constraint + '] ' + body + ';';
+            });
+
+            $('#collectionDdl').text(ddl);
+        }
+
+        // --- events -----------------------------------------------------------------------------
+        $(document).on('input change', '#collectionEditor input, #collectionEditor select', function () {
+            var $row = $(this).closest('.cc-field');
+
+            if ($(this).hasClass('f-reftable')) {
+                $row.find('.f-refcol').html(refColumnOptions($(this).val(), ''));
+                applyRefType($row);
+            } else if ($(this).hasClass('f-refcol') ||
+                       ($(this).hasClass('f-constraint') && $(this).val() === 'FK')) {
+                applyRefType($row);
+            }
+
+            if ($row.length) { syncRow($row); renderPreview(); }
+            else { refreshAll(); }
+        });
+
+        $(document).on('click', '.collection-item', function () {
+            var $item = $(this);
+            $('.collection-item').removeClass('active');
+            $item.addClass('active');
+
+            $.getJSON(urls.load, { id: $item.data('cid') }, function (response) {
+                if (!response.success) { APS.toast(response.message || 'The collection could not be loaded.', 'error'); return; }
+
+                var m = response.data.collection;
+                var cols = (response.data.columns || []).filter(function (c) { return Number(c.IsSystemColumn) !== 1; });
+
+                render({
+                    id: m.CollectionID, name: m.CollectionName, table: m.TableName, description: m.Description,
+                    useCaseId: m.UseCaseID, generated: Number(m.IsGenerated) === 1, generatedOn: m.GeneratedOn
+                }, cols.map(function (c) {
+                    return {
+                        name: c.ColumnName, dataType: c.DataTypeName,
+                        length: c.ColumnLength === -1 ? 'MAX' : (c.ColumnLength === null ? '' : c.ColumnLength),
+                        precision: c.NumericPrecision === null ? '' : c.NumericPrecision,
+                        scale: c.NumericScale === null ? '' : c.NumericScale,
+                        nullable: Number(c.IsNullable) === 1, defaultValue: c.DefaultValue || '',
+                        constraint: c.ConstraintType || 'NONE', refTable: c.RefTableName || '',
+                        refColumn: c.RefColumnName || '', check: c.CheckExpression || '',
+                        inTable: Number(c.InTable) === 1
+                    };
+                }));
+            }).fail(function () { APS.toast('The collection could not be loaded.', 'error'); });
+        });
+
+        $('#addCollection').on('click', function () {
+            $('.collection-item').removeClass('active');
+                        if (!Number('@currentUseCaseId')) {
+                APS.toast('Select a client and process at the top before adding a collection.', 'error');
+                return;
+            }
+
+            render({ id: 0, name: '', description: '', useCaseId: '@currentUseCaseId', generated: false },
+                   [{ dataType: 'varchar', length: '100', nullable: true, constraint: 'NONE' }]);
+            $('#collectionName').trigger('focus');
+        });
+
+        $(document).on('click', '#addField', function () {
+        // New fields go to the top, next to the button, so nothing has to be scrolled for.
+        $('#collectionFields').prepend(fieldRow({ dataType: 'varchar', length: '100', nullable: true, constraint: 'NONE' }));
+        refreshAll();
+
+        var $row = $('#collectionFields .cc-field').first().addClass('cfg-new');
+        $row.find('.f-name').trigger('focus');
+        window.setTimeout(function () { $row.removeClass('cfg-new'); }, 1500);
+    });
+
+        $(document).on('click', '[data-action="remove-field"]', function () {
+            if ($('#collectionFields .cc-field').length === 1) {
+                APS.toast('A collection needs at least one field.', 'error');
+                return;
+            }
+            $(this).closest('.cc-field').remove();
+            renderPreview();
+        });
+
+        $(document).on('click', '#saveCollection', function () {
+            var name = ($('#collectionName').val() || '').trim();
+            if (!/^[A-Za-z][A-Za-z0-9]*$/.test(name)) {
+                APS.toast('Collection name: letters and numbers only, starting with a letter.', 'error');
+                $('#collectionName').trigger('focus');
+                return;
+            }
+
+            var useCaseId = Number($('#collectionUseCase').val() || 0);
+            if (!useCaseId) {
+                APS.toast('Select a client and process at the top of the screen.', 'error');
+                return;
+            }
+
+            var fields = [], seen = {}, problem = null;
+            $('#collectionFields .cc-field').each(function () {
+                var f = readField($(this));
+                if (!f.name) { return; }
+                var key = f.name.toLowerCase();
+                if (seen[key]) { problem = problem || 'Field "' + f.name + '" is listed more than once.'; }
+                seen[key] = true;
+                if (f.constraint === 'FK' && (!f.refTable || !f.refColumn)) {
+                    problem = problem || 'Field "' + f.name + '": choose a reference table and column.';
+                }
+                if (f.constraint === 'C' && !f.check) {
+                    problem = problem || 'Field "' + f.name + '": enter the check expression.';
+                }
+                fields.push({
+                    name: f.name, dataType: f.dataType, length: f.length, precision: f.precision, scale: f.scale,
+                    nullable: f.nullable, defaultValue: f.defaultValue, constraint: f.constraint,
+                    refTable: f.refTable, refColumn: f.refColumn, check: f.check
+                });
+            });
+
+            if (problem) { APS.toast(problem, 'error'); return; }
+            if (!fields.length) { APS.toast('Add at least one named field.', 'error'); return; }
+
+            APS.busy(this, APS.post(urls.save, {
+                collectionId: current ? current.id : 0,
+                collectionname: name,
+                description: ($('#collectionDescription').val() || '').trim(),
+                useCaseId: useCaseId,
+                fieldsJson: JSON.stringify(fields)
+            })).then(function (response) {
+                if (!response.success) { return; }
+                APS.toast(response.message, 'success');
+                var id = response.data && response.data.id ? response.data.id : 0;
+                window.setTimeout(function () { window.location.href = urls.back + (id ? '&collectionId=' + id : ''); }, 900);
+            });
+        });
+
+        $(document).on('click', '#generateCollection', function () {
+            if (!current || !current.id) { APS.toast('Save the definition first.', 'error'); return; }
+
+            var button = this;
+            var update = !!current.generated;
+
+            APS.confirmAction(update ? 'Update table' : 'Create table',
+                update
+                    ? 'New fields and constraints in the saved definition are added to ' + current.table +
+                      '. Existing columns are not changed or dropped. Unsaved edits are not included. Continue?'
+                    : 'This creates ' + current.table + ' in the database from the saved definition. ' +
+                      'Unsaved edits are not included. Continue?',
+                update ? 'Update table' : 'Create table',
+                function () {
+                    APS.busy(button, APS.post(urls.generate, { collectionId: current.id })).then(function (response) {
+                        if (!response.success) { return; }
+                        APS.toast(response.message, 'success');
+                        window.setTimeout(function () { window.location.href = urls.back + '&collectionId=' + current.id; }, 900);
+                    });
+                });
+        });
+
+        // Reopen the collection that was just saved, otherwise the first one.
+        var wanted = (new URLSearchParams(window.location.search).get('collectionId') || '').replace(/[^0-9]/g, '');
+        var $start = wanted ? $('.collection-item[data-cid="' + wanted + '"]') : $();
+        if (!$start.length) { $start = $('.collection-item').first(); }
+        if ($start.length) { $start.trigger('click'); } else { $('#addCollection').trigger('click'); }
+    });
+</script>

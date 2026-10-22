@@ -1,0 +1,431 @@
+@using System.Data
+@{
+    ViewBag.Title = "Inbox Detail";
+
+    var record = ViewBag.Record as DataRow;
+    var inflowDataId = ViewBag.InflowDataId is int i ? i : 0;
+    var modes = ViewBag.Modes as List<byte> ?? new List<byte>();
+    var mode = ViewBag.Mode is byte m ? m : (byte)0;
+    var tiles = ViewBag.Tiles as List<ApsDetailRuntime.TileView> ?? new List<ApsDetailRuntime.TileView>();
+    var tabs = ViewBag.Tabs as List<ApsDetailRuntime.Tab> ?? new List<ApsDetailRuntime.Tab>();
+    var fields = ViewBag.Fields as List<Dictionary<string, object>> ?? new List<Dictionary<string, object>>();
+    var values = ViewBag.Values as Dictionary<string, string> ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    var reviewStatus = GetValue(record, "ReviewStatusCode");
+    var isDecided = !string.IsNullOrWhiteSpace(reviewStatus)
+        && !string.Equals(reviewStatus, "Pending Review", StringComparison.OrdinalIgnoreCase);
+    var isInvalid = string.Equals(GetValue(record, "ValidationStatusCode"), "INVALID", StringComparison.OrdinalIgnoreCase);
+    var hasLayout = modes.Count > 0;
+}
+
+<link rel="stylesheet" href="~/css/detail.css" asp-append-version="true" />
+
+@if (record == null)
+{   
+    <div class="card"><div class="card-body"><div class="empty-state">Record not found.</div></div></div>
+}
+else
+{
+    <div class="card dv-header">
+        <div class="dv-header-main">
+            <a class="dv-back" asp-action="Index" asp-route-useCaseId="@GetValue(record, "UseCaseID")">
+                <i class="fa-solid fa-arrow-left"></i>Back to Inbox
+            </a>
+            <div class="dv-title-row">
+                <span class="dv-title-icon"><i class="fa-solid fa-file-circle-check"></i></span>
+                <div>
+                    <h1 class="dv-title">Case review</h1>
+                    <div class="dv-title-meta">
+                        <span class="@BadgeFor(reviewStatus)">@(string.IsNullOrEmpty(reviewStatus) ? "Pending Review" : reviewStatus)</span>
+                        @if (isInvalid)
+                        {
+                            <span class="badge badge-danger">Validation failed</span>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="dv-header-side">
+            @if (modes.Count > 1)
+            {
+                <div class="dl-modes">
+                    <a class="dl-mode @(mode == 1 ? "active" : "")" asp-action="Detail" asp-route-id="@inflowDataId" asp-route-mode="1">
+                        <i class="fa-solid fa-table-list"></i>Data Review
+                    </a>
+                    <a class="dl-mode @(mode == 2 ? "active" : "")" asp-action="Detail" asp-route-id="@inflowDataId" asp-route-mode="2">
+                        <i class="fa-solid fa-folder-open"></i>Evidence Review
+                    </a>
+                </div>
+            }
+            @if (!isDecided)
+            {
+                <div class="dv-actions">
+                    <button type="button" class="btn btn-primary" data-decision="Approved">
+                        <i class="fa-solid fa-circle-check"></i>Approve
+                    </button>
+                    <button type="button" class="btn" data-decision="Needs Clarification">
+                        <i class="fa-solid fa-circle-question"></i>Needs clarification
+                    </button>
+                    <button type="button" class="btn btn-danger" data-decision="Rejected">
+                        <i class="fa-solid fa-circle-xmark"></i>Reject
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (isInvalid)
+    {
+        <div class="callout callout-danger" style="margin-top:12px">@GetValue(record, "ValidationMessage")</div>
+    }
+
+    @if (isDecided && !string.IsNullOrEmpty(GetValue(record, "ReviewComment")))
+    {
+        <div class="callout" style="margin-top:12px"><strong>Review comment:</strong> @GetValue(record, "ReviewComment")</div>
+    }
+
+    @if (hasLayout)
+    {
+        @if (tiles.Count > 0)
+        {
+            <div class="dv-tiles">
+                @foreach (var tile in tiles)
+                {
+                    <div class="dl-tile dl-accent-@tile.Accent" title="@tile.Error">
+                        <div class="dl-tile-icon"><i class="fa-solid @tile.Icon"></i></div>
+                        <div class="dl-tile-text">
+                            <div class="dl-tile-label">@tile.Title</div>
+                            <div class="dl-tile-value">@(string.IsNullOrEmpty(tile.Value) ? "—" : tile.Value)</div>
+                            @if (!string.IsNullOrEmpty(tile.Subtitle))
+                            {
+                                <div class="dl-tile-sub">@tile.Subtitle</div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        @if (tabs.Count > 0)
+        {
+            <div class="card dv-workspace">
+                <div class="tabs dv-tabs" role="tablist">
+                    @foreach (var tab in tabs)
+                    {
+                        <button type="button" class="tab-button dv-tab" role="tab" aria-selected="false" data-tab-id="@tab.Id">
+                            <i class="fa-solid @tab.Icon"></i>@tab.Label
+                        </button>
+                    }
+                </div>
+                @foreach (var tab in tabs)
+                {
+                    <div class="dv-panel" role="tabpanel" data-panel="@tab.Id" hidden>
+                        <div class="dv-loading"><i class="fa-solid fa-spinner"></i>Loading…</div>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="card" style="margin-top:16px">
+                <div class="card-body"><div class="empty-state">This workspace has tiles but no tabs yet.</div></div>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="card" style="margin-top:16px">
+            <div class="card-body">
+                <div class="callout" style="margin-bottom:14px">
+                    No detail layout is configured for this use case yet. An Admin can set one up in
+                    Configuration → Detail Setup. The template fields are shown below.
+                </div>
+                <div class="form-grid">
+                    @foreach (var field in fields)
+                    {
+                        var fieldCode = Convert.ToString(field["FieldCode"]) ?? "";
+                        var displayName = Convert.ToString(field["DisplayName"]) ?? fieldCode;
+                        <div class="form-group">
+                            <label>@(string.IsNullOrEmpty(displayName) ? fieldCode : displayName)</label>
+                            <input value="@(values.TryGetValue(fieldCode, out var v) ? v : "")" readonly />
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@functions {
+    private static string GetValue(DataRow row, string name)
+    {
+        if (row == null) return string.Empty;
+        var col = row.Table.Columns.Cast<DataColumn>()
+            .FirstOrDefault(c => string.Equals(c.ColumnName, name, StringComparison.OrdinalIgnoreCase));
+        if (col == null || row[col] == DBNull.Value) return string.Empty;
+        return Convert.ToString(row[col]) ?? string.Empty;
+    }
+
+    private static string BadgeFor(string status)
+    {
+        var value = (status ?? string.Empty).ToLowerInvariant();
+        if (value.Contains("approve")) return "badge badge-success";
+        if (value.Contains("clarif") || value.Contains("pending") || value.Length == 0) return "badge badge-warning";
+        if (value.Contains("reject") || value.Contains("fail")) return "badge badge-danger";
+        return "badge badge-neutral";
+    }
+}
+
+@section Scripts {
+    <script src="~/lib/pdfjs/pdf.min.js" nonce="@Context.ApsNonce()"></script>
+    <script src="~/lib/tiffjs/tiff.min.js" nonce="@Context.ApsNonce()"></script>
+    <script src="~/js/doc-viewer.js" asp-append-version="true" nonce="@Context.ApsNonce()"></script>
+    <script nonce="@Context.ApsNonce()">
+        (function ($) {
+            'use strict';
+
+            var recordId = @inflowDataId;
+            var urls = {
+                tab: '@Url.Action("TabData", "Inbox")',
+                doc: '@Url.Action("Document", "Inbox")',
+                pages: '@Url.Action("DocumentPages", "Inbox")',
+                review: '@Url.Action("SaveReview", "Inbox")',
+                refresh: '@Url.Action("RefreshTab", "Inbox")',
+            updateField: '@Url.Action("UpdateDocumentField", "Inbox")'
+        };
+
+            if (window.APSDocViewer && typeof APSDocViewer.init === 'function') {
+                APSDocViewer.init('@Url.Content("~/lib/pdfjs/pdf.worker.min.js")');
+            } else if (window.console) {
+                console.warn('APSDocViewer not loaded - the document viewer tab will not render.');
+            }
+            var SECTION_TITLES = { documents: 'Documents', preview: 'Preview', fields: 'Extracted data' };
+            var COLORS = ['success', 'danger', 'warning', 'info', 'neutral'];
+            var ACCENTS = ['navy', 'teal', 'sky', 'green', 'gold', 'slate'];
+            var loaded = {};
+
+            function esc(v) { return APS.escapeHtml(v === null || v === undefined ? '' : v); }
+            function safeColor(c) { return COLORS.indexOf(c) >= 0 ? c : 'neutral'; }
+            function safeAccent(a) { return ACCENTS.indexOf(a) >= 0 ? a : 'navy'; }
+            function empty(text) {
+            return '<div class="dv-empty"><span class="dv-empty-icon"><i class="fa-solid fa-folder-open"></i></span>' +
+                   '<strong>Nothing to show</strong><span>' + esc(text) + '</span></div>';
+            }
+            function errorBox(text) { return '<div class="callout callout-danger">' + esc(text) + '</div>'; }
+
+            // --- tabs --------------------------------------------------------------------------
+            function showTab(tabId) {
+                $('.dv-tab').removeClass('active').attr('aria-selected', 'false');
+                $('.dv-tab[data-tab-id="' + tabId + '"]').addClass('active').attr('aria-selected', 'true');
+                $('.dv-panel').prop('hidden', true);
+
+                var $panel = $('.dv-panel[data-panel="' + tabId + '"]').prop('hidden', false);
+                if (loaded[tabId]) { return; }
+                loaded[tabId] = true;
+
+                $.getJSON(urls.tab, { id: recordId, tabId: tabId })
+                    .done(function (response) {
+                        if (!response.success) {
+                            loaded[tabId] = false;
+                            $panel.html(errorBox(response.message || 'This tab could not be loaded.'));
+                            return;
+                        }
+                        render($panel, response.data, tabId);
+                    })
+                    .fail(function () {
+                        loaded[tabId] = false;
+                        $panel.html(errorBox('This tab could not be loaded.'));
+                    });
+            }
+
+            function render($panel, d, tabId) {
+                switch (d.type) {
+                    case 'TABLE': renderTable($panel, d); break;
+                    case 'SUMMARY': renderSummary($panel, d); break;
+                    case 'CHECKLIST': renderChecklist($panel, d); break;
+                    case 'DOCVIEWER': renderDocuments($panel, d, tabId); break;
+                    case 'NOTES': renderNotes($panel, d, tabId); break;
+                    default: $panel.html(errorBox('This tab has an unknown display type.'));
+                }
+            }
+
+                    function renderNotes($panel, d, tabId) {
+            var view = d.defaultView === 'summary' && d.summary.configured ? 'summary' : 'live';
+
+            function feed() { return view === 'summary' ? d.summary : d.live; }
+
+            function draw() {
+                var current = feed();
+                var toggle = '<div class="dv-notes-bar">' +
+                    '<div class="dv-notes-toggle">' +
+                        (d.live.configured ? '<button type="button" class="dv-note-tab' + (view === 'live' ? ' active' : '') + '" data-view="live">Live notes</button>' : '') +
+                        (d.summary.configured ? '<button type="button" class="dv-note-tab' + (view === 'summary' ? ' active' : '') + '" data-view="summary">AI summary</button>' : '') +
+                    '</div>' +
+                    (d.refreshPipelineId
+                        ? '<button type="button" class="btn btn-sm" data-refresh><i class="fa-solid fa-rotate"></i>Refresh</button>'
+                        : '') +
+                    '</div>';
+
+                var body = !current.configured ? empty('This view is not configured.')
+                         : current.error ? errorBox(current.error)
+                         : !current.cards.length ? empty('No notes for this record yet.')
+                         : '<div class="dv-notes">' + current.cards.map(function (c) {
+                             return '<article class="dv-note">' +
+                                 '<header><strong>' + esc(c.source || 'Note') + '</strong>' +
+                                 '<span>' + esc(c.date) + '</span></header>' +
+                                 '<p>' + esc(c.content) + '</p></article>';
+                           }).join('') + '</div>';
+
+                $panel.html(toggle + body);
+            }
+
+            $panel.on('click', '[data-view]', function () {
+                view = $(this).data('view');
+                draw();
+            });
+
+            $panel.on('click', '[data-refresh]', function () {
+                APS.busy(this, APS.post(urls.refresh, { id: recordId, tabId: tabId })).then(function (r) {
+                    if (!r.success) { return; }
+                    APS.toast(r.message, 'success');
+                    loaded[tabId] = false;
+                    showTab(tabId);
+                });
+            });
+
+            draw();
+        }
+
+            // --- table ---------------------------------------------------------------------------
+            function renderTable($panel, d) {
+                var page = 0;
+                var size = d.pageSize || 25;
+                var total = d.rows.length;
+                var pages = Math.max(1, Math.ceil(total / size));
+
+                function draw() {
+                    var slice = d.rows.slice(page * size, page * size + size);
+                    var head = d.columns.map(function (c) { return '<th>' + esc(c.header) + '</th>'; }).join('');
+                    var body = slice.length
+                        ? slice.map(function (row) {
+                            return '<tr>' + row.map(function (v) { return '<td>' + esc(v) + '</td>'; }).join('') + '</tr>';
+                          }).join('')
+                        : '<tr><td colspan="' + d.columns.length + '">No rows for this record.</td></tr>';
+
+                    var pager = pages > 1
+                        ? '<div class="dv-pager"><span>' + (page * size + 1) + '–' + Math.min(total, (page + 1) * size) + ' of ' + total + '</span>' +
+                          '<button type="button" class="btn btn-sm" data-page="-1"' + (page === 0 ? ' disabled' : '') + '>Previous</button>' +
+                          '<button type="button" class="btn btn-sm" data-page="1"' + (page >= pages - 1 ? ' disabled' : '') + '>Next</button></div>'
+                        : '<div class="dv-pager"><span>' + total + ' row(s)</span></div>';
+
+                    $panel.html('<div class="table-wrap"><table><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>' + pager);
+                }
+
+                $panel.on('click', '[data-page]', function () {
+                    page = Math.min(pages - 1, Math.max(0, page + Number($(this).data('page'))));
+                    draw();
+                });
+                draw();
+            }
+
+            // --- summary -------------------------------------------------------------------------
+            function tileHtml(title, icon, accent, value) {
+                return '<div class="dl-tile dl-accent-' + safeAccent(accent) + '">' +
+                    '<div class="dl-tile-icon"><i class="fa-solid ' + esc(icon) + '"></i></div>' +
+                    '<div class="dl-tile-text"><div class="dl-tile-label">' + esc(title) + '</div>' +
+                    '<div class="dl-tile-value">' + esc(value || '—') + '</div></div></div>';
+            }
+
+            function renderSummary($panel, d) {
+                if (!d.cards.length) { $panel.html(empty('No summary cards are configured.')); return; }
+                $panel.html('<div class="dv-tiles dv-tiles-inline">' + d.cards.map(function (c) {
+                    return tileHtml(c.title, c.icon, c.accent, c.value);
+                }).join('') + '</div>');
+            }
+
+            // --- checklist -----------------------------------------------------------------------
+            function renderChecklist($panel, d) {
+            if (!d.items.length) { $panel.html(empty('No checklist questions are configured.')); return; }
+
+            var chips = d.summary.map(function (s) {
+                return '<span class="badge badge-' + safeColor(s.color) + '">' + esc(s.result) + ': ' + s.count + '</span>';
+            }).join('');
+
+            var cards = d.items.map(function (q, k) {
+                var evidence = (q.evidence || []).map(function (e) {
+                    return '<div class="dv-ev"><span>' + esc(e.label) + '</span><p>' + esc(e.value) + '</p></div>';
+                }).join('');
+
+                return '<article class="dv-q">' +
+                    '<header><span class="dv-q-num">' + (k + 1) + '</span>' +
+                        '<div><strong>' + esc(q.question) + '</strong><small>' + esc(q.category) + '</small></div>' +
+                        '<span class="badge badge-' + safeColor(q.color) + '">' + esc(q.result) + '</span></header>' +
+                    (evidence ? '<div class="dv-ev-grid">' + evidence + '</div>' : '') +
+                    (q.justification ? '<div class="dv-why"><i class="fa-solid fa-lightbulb"></i><p>' + esc(q.justification) + '</p></div>' : '') +
+                    '</article>';
+            }).join('');
+
+            $panel.html('<div class="dv-chips">' + chips + '</div><div class="dv-qs">' + cards + '</div>');
+        }
+
+            // --- document viewer -------------------------------------------------------------------
+            function docIcon(kind) {
+                return kind === 'pdf' ? 'fa-file-pdf' : (kind === 'image' || kind === 'tiff') ? 'fa-file-image' : 'fa-file-lines';
+            }
+
+           function renderDocuments($panel, d, tabId) {
+            if (!d.documents.length) { $panel.html(empty('No documents were returned for this record.')); return; }
+
+            APSDocViewer.render($panel, d, {
+                titles: SECTION_TITLES,
+                canEdit: d.canEdit === true,
+                fileUrl: function (token, extra) {
+                    return urls.doc + '?id=' + recordId + '&tabId=' + tabId + '&doc=' + encodeURIComponent(token) + (extra || '');
+                },
+                save: function (rowKey, value) {
+                    return APS.post(urls.updateField, { id: recordId, tabId: tabId, rowKey: rowKey, value: value });
+                }
+            });
+            }
+
+            $('.dv-tab').on('click', function () { showTab($(this).data('tab-id')); });
+            if ($('.dv-tab').length) { showTab($('.dv-tab').first().data('tab-id')); }
+
+            // --- decision ----------------------------------------------------------------------------
+            $('[data-decision]').on('click', function () {
+                var decision = String($(this).data('decision'));
+                var needsComment = decision !== 'Approved';
+                var title = decision === 'Approved' ? 'Approve record'
+                          : decision === 'Rejected' ? 'Reject record' : 'Request clarification';
+
+                APS.openModal(title,
+                    '<div class="form-group"><label for="reviewComment">Comment' +
+                    (needsComment ? ' (required)' : ' (optional)') + '</label>' +
+                    '<textarea id="reviewComment" rows="4" maxlength="2000"></textarea></div>',
+                    '<button type="button" class="btn" data-modal-close>Cancel</button>' +
+                    '<button type="button" class="btn btn-primary" id="submitDecision">Submit</button>');
+
+                $('#submitDecision').on('click', function () {
+                    var comment = String($('#reviewComment').val() || '').trim();
+                    if (needsComment && !comment) {
+                        APS.toast('A comment is required for this decision.', 'error');
+                        $('#reviewComment').trigger('focus');
+                        return;
+                    }
+
+                    APS.busy(this, APS.post(urls.review, {
+                        inflowDataId: recordId,
+                        reviewStatusCode: decision,
+                        reviewComment: comment
+                    })).then(function (response) {
+                        if (!response.success) { return; }
+                        APS.closeModal();
+                        APS.toast(response.message, 'success');
+                        window.setTimeout(function () { window.location.reload(); }, 600);
+                    });
+                });
+            });
+        })(jQuery);
+    </script>
+}

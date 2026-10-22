@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <!-- Targets .NET 8 (LTS). To move to .NET 10 change this single value;
+         nothing in the project uses an API that was removed after 8. -->
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AgenticPitstop</RootNamespace>
+    <AssemblyName>AgenticPitstop</AssemblyName>
+    <UserSecretsId>agentic-pitstop-portal</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ADO.NET only. No Entity Framework, no ORM, no micro-ORM. -->
+	  <PackageReference Include="AWSSDK.KeyManagementService" Version="4.0.100.17" />
+	  <PackageReference Include="AWSSDK.S3" Version="4.0.0.14" />
+	  <PackageReference Include="AWSSDK.SecretsManager" Version="4.0.100.18" />
+	  <PackageReference Include="AWSSDK.SQS" Version="4.0.100.13" />
+	  <PackageReference Include="Azure.Identity" Version="1.21.0" />
+	  <PackageReference Include="Azure.Security.KeyVault.Secrets" Version="4.11.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" Version="8.0.30" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
+	<PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+	 <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+    <!-- Windows Authentication when hosted on Kestrel. IIS/IIS Express uses
+         its own handler and ignores this. Replace with an SSO handler later. -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="wwwroot\lib\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Models\" />
+    <Folder Include="Views\SopAnalyzer\" />
+    <Folder Include="wwwroot\Documents\Collections\" />
+  </ItemGroup>
+
+</Project>

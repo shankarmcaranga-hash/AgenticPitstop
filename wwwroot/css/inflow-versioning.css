@@ -1,0 +1,272 @@
+/* ===========================================================================
+   Inflow configuration — right-hand preview, versions and diff
+
+   APPEND THIS TO wwwroot/css/site.css, or reference it from _Layout.
+   Without it .inflow-split has no grid, so the preview falls to the bottom of
+   the page instead of sitting beside the form. That is the single most likely
+   reason the layout looks unchanged after swapping the partial.
+   =========================================================================== */
+
+/* --- two columns: form left, preview right -------------------------------- */
+.inflow-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(360px, .75fr);
+  gap: 16px;
+  align-items: start;
+}
+
+/* The preview follows as the form is scrolled, so a change made low in the
+   form is still visible in its effect. */
+.inflow-preview { position: sticky; top: 16px; }
+
+/* Hidden entirely in API mode: there is no reviewer upload screen to preview
+   when work arrives automatically. */
+.inflow-split.api-mode { grid-template-columns: 1fr; }
+.inflow-split.api-mode .inflow-preview { display: none; }
+
+/* --- preview frame -------------------------------------------------------- */
+.inflow-preview-frame {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px;
+  background: #fbfdff;
+  margin-top: 12px;
+}
+
+.inflow-preview-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #64748b;
+  margin: 14px 0 6px;
+}
+
+.inflow-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  padding: 26px 16px;
+  border: 2px dashed #cbd5e1;
+  border-radius: 9px;
+  background: #fff;
+}
+.inflow-dropzone i { font-size: 24px; color: #475569; }
+.inflow-dropzone strong { font-size: 15px; }
+.inflow-dropzone span { font-size: 11px; color: #64748b; }
+
+.inflow-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* The preview grid can be wider than its column, so it scrolls on its own
+   rather than pushing the page sideways. */
+.inflow-preview-frame .table-wrap { overflow-x: auto; }
+.inflow-preview-frame table { font-size: 12px; }
+.inflow-preview-frame th { white-space: nowrap; }
+
+/* A ghost row says "this is a shape, not data" without looking like a load
+   that failed. */
+.inflow-ghost td {
+  height: 30px;
+  background: repeating-linear-gradient(
+    45deg, #f8fafc, #f8fafc 6px, #f1f5f9 6px, #f1f5f9 12px);
+}
+
+/* --- column diff ---------------------------------------------------------- */
+.inflow-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  margin: 10px 0;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 12px;
+}
+.inflow-diff-add { color: #15803d; }
+.inflow-diff-remove { color: #b91c1c; }
+
+.mono { font-family: ui-monospace, Consolas, Monaco, monospace; font-size: 12px; }
+
+@media (max-width: 1180px) {
+  .inflow-split { grid-template-columns: 1fr; }
+  .inflow-preview { position: static; }
+}
+/* ===========================================================================
+   Inflow configuration - API mode
+
+   Scoped to #apiFields so nothing here can reach the manual-upload side or
+   any other screen. Layout only; no behaviour depends on these rules.
+   =========================================================================== */
+
+.api-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+/* --- section frame -------------------------------------------------------- */
+.api-section {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px;
+    background: var(--surface);
+}
+
+.api-section-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    padding-bottom: 12px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+}
+
+    .api-section-head > div {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .api-section-head strong {
+        display: block;
+        font-size: 13px;
+        margin-bottom: 2px;
+    }
+
+    .api-section-head .input-help {
+        display: block;
+    }
+
+    /* The action in a head sits on the baseline of the title, not the help text. */
+    .api-section-head > .btn {
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
+
+.api-section-icon {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    flex: 0 0 auto;
+    border-radius: 9px;
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-size: 12px;
+}
+
+/* --- endpoint ------------------------------------------------------------- */
+/* The button kept shrinking until its label wrapped onto two lines, because the
+   input claims 100% width inside a flex row. */
+.api-endpoint-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+    .api-endpoint-row input {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .api-endpoint-row .btn {
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
+
+.api-connectivity:not(:empty) {
+    display: inline-block;
+    margin-top: 8px;
+}
+
+#apiFields textarea#requestBody {
+    font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    resize: vertical;
+}
+
+/* --- headers -------------------------------------------------------------- */
+/* .header-row holds four children but site.css gives it three tracks, so the
+   Remove button wrapped onto a row of its own at full width. */
+#apiFields .header-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto auto;
+    align-items: center;
+}
+
+#apiFields .header-legend {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto auto;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+}
+
+#apiFields .header-key {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+#apiFields .btn-icon {
+    width: 38px;
+    padding: 8px 0;
+}
+
+/* --- schedule ------------------------------------------------------------- */
+.api-minutes-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+    .api-minutes-row input {
+        flex: 0 0 90px;
+        text-align: center;
+    }
+
+/* --- response console ----------------------------------------------------- */
+/* A title bar turns a bare black rectangle into something that reads as a
+   console, and lets the viewer itself lose its top corners. */
+.api-console {
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.api-console-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: #16233b;
+}
+
+.api-console-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #3b4a66;
+}
+
+.api-console-title {
+    margin-left: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: #8da2c0;
+}
+
+.api-console .code-viewer {
+    border-radius: 0;
+    min-height: 170px;
+}
+
+@media (max-width: 760px) {
+    #apiFields .header-legend {
+        display: none;
+    }
+
+    .api-section-head {
+        flex-wrap: wrap;
+    }
+}

@@ -1,0 +1,157 @@
+@{
+    ViewBag.Title = "Agents Monitor";
+    var agents = (DataTable)ViewBag.Agents;
+    var executions = (DataTable)ViewBag.Executions;
+
+    var active = agents.AsEnumerable().Count(a => Convert.ToByte(a["activestatus"]) == 1);
+    var succeeded = agents.AsEnumerable().Count(a =>
+        Convert.ToString(a["laststatus"]) == "Success");
+    var failed = agents.AsEnumerable().Count(a =>
+        Convert.ToString(a["laststatus"]) == "Failed");
+    var processed = agents.AsEnumerable().Sum(a =>
+        a["lastrecordcount"] == DBNull.Value ? 0 : Convert.ToInt32(a["lastrecordcount"]));
+
+    ViewData["PageTitle"] = "Agents monitor";
+    ViewData["PageSubtitle"] = "Current state of every registered agent and its most recent run.";
+    ViewData["PageBreadcrumb"] = "Operations / Agents Monitor";
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+<div class="grid grid-4" style="margin-bottom:16px">
+    <div class="card kpi-card">
+        <span class="kpi-label">Active agents</span>
+        <span class="kpi-value">@active</span>
+        <div class="kpi-trend">@agents.Rows.Count registered</div>
+    </div>
+    <div class="card kpi-card">
+        <span class="kpi-label">Last run succeeded</span>
+        <span class="kpi-value">@succeeded</span>
+        <div class="kpi-trend">Current snapshot</div>
+    </div>
+    <div class="card kpi-card">
+        <span class="kpi-label">Last run failed</span>
+        <span class="kpi-value">@failed</span>
+        <div class="kpi-trend">@(failed > 0 ? "Needs attention" : "No failures")</div>
+    </div>
+    <div class="card kpi-card">
+        <span class="kpi-label">Records processed</span>
+        <span class="kpi-value">@processed</span>
+        <div class="kpi-trend">Across the latest runs</div>
+    </div>
+</div>
+
+@if (agents.Rows.Count == 0)
+{
+    <div class="card"><div class="card-body">
+        @{
+            ViewData["EmptyIcon"] = "fa-robot";
+            ViewData["EmptyHeading"] = "Nothing to monitor yet";
+            ViewData["EmptyMessage"] = "Register an agent in the Agents Scheduler and its runs will appear here.";
+        }
+        @await Html.PartialAsync("_EmptyState")
+    </div></div>
+}
+else
+{
+    <div class="agent-grid">
+        @foreach (DataRow agent in agents.Rows)
+        {
+            var isActive = Convert.ToByte(agent["activestatus"]) == 1;
+            var status = Convert.ToString(agent["laststatus"]);
+            var neverRun = agent["lastexecution"] == DBNull.Value;
+
+            <div class="card agent-card">
+                <div class="agent-card-head">
+                    <div>
+                        <strong>@agent["agentname"]</strong>
+                        <span class="input-help">@agent["purpose"]</span>
+                    </div>
+                    <span class="badge @(isActive ? "badge-success" : "badge-neutral")">
+                        @(isActive ? "Active" : "Paused")
+                    </span>
+                </div>
+
+                <div class="agent-metrics">
+                    <div class="metric">
+                        <span>Last execution</span>
+                        <strong>
+                            @(neverRun ? "Never" : Convert.ToDateTime(agent["lastexecution"]).ToString("dd MMM · HH:mm"))
+                        </strong>
+                    </div>
+                    <div class="metric">
+                        <span>Result</span>
+                        <strong>
+                            <span class="badge @(status == "Success" ? "badge-success" : status == "Failed" ? "badge-danger" : "badge-neutral")">
+                                @(neverRun ? "—" : status)
+                            </span>
+                        </strong>
+                    </div>
+                    <div class="metric">
+                        <span>Duration</span>
+                        <strong>
+                            @(agent["lastduration"] == DBNull.Value
+                                ? "—"
+                                : TimeSpan.FromSeconds(Convert.ToInt32(agent["lastduration"])).ToString("hh\\:mm\\:ss"))
+                        </strong>
+                    </div>
+                    <div class="metric">
+                        <span>Records</span>
+                        <strong>@(agent["lastrecordcount"] == DBNull.Value ? "—" : agent["lastrecordcount"])</strong>
+                    </div>
+                    <div class="metric">
+                        <span>Schedule</span>
+                        <strong>@agent["scheduletext"]</strong>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button class="btn btn-sm" data-action="show-executions"
+                            data-agid="@agent["agid"]" data-name="@agent["agentname"]">
+                        <i class="fa-solid fa-list-ul"></i>Execution history
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+    (function ($) {
+        'use strict';
+
+        $(document).on('click', '[data-action="show-executions"]', function () {
+            var name = $(this).data('name');
+
+            $.getJSON('@Url.Action("Executions", "Agents")', { id: $(this).data('agid') },
+                function (response) {
+                    if (!response.success || !response.data.length) {
+                        APS.toast('This agent has not run yet.', 'info');
+                        return;
+                    }
+
+                    var rows = response.data.map(function (run) {
+                        var badge = run.status === 'Success' ? 'badge-success'
+                                  : run.status === 'Failed' ? 'badge-danger' : 'badge-neutral';
+                        return '<tr>' +
+                          '<td>' + APS.escapeHtml(new Date(run.startedon).toLocaleString()) + '</td>' +
+                          '<td><span class="badge ' + badge + '">' +
+                            APS.escapeHtml(run.status) + '</span></td>' +
+                          '<td>' + APS.escapeHtml(run.durationseconds === null ? '—' : run.durationseconds + 's') + '</td>' +
+                          '<td>' + APS.escapeHtml(run.recordcount === null ? '—' : run.recordcount) + '</td>' +
+                          '<td>' + APS.escapeHtml(run.message || '') + '</td>' +
+                        '</tr>';
+                    }).join('');
+
+                    APS.openModal('Execution history · ' + name,
+                        '<div class="table-wrap"><table><thead><tr>' +
+                        '<th>Started</th><th>Status</th><th>Duration</th>' +
+                        '<th>Records</th><th>Message</th></tr></thead><tbody>' +
+                        rows + '</tbody></table></div>',
+                        '<button class="btn" data-modal-close>Close</button>');
+                });
+        });
+    })(jQuery);
+</script>
+}

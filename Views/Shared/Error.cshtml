@@ -1,0 +1,21 @@
+@{
+    ViewBag.Title = "Something went wrong";
+}
+<div class="aps-gate">
+    <div class="card">
+        <div class="card-body">
+            <div class="empty-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+            <h2 class="card-title">That request could not be completed</h2>
+            <p class="card-subtitle">
+                The error has been logged. If it keeps happening, send the reference
+                below to your portal administrator.
+            </p>
+            <p style="margin-top:14px">Reference: <code>@ViewBag.RequestId</code></p>
+            <div class="form-actions">
+                <a class="btn btn-primary" asp-controller="Inbox" asp-action="Index">
+                    <i class="fa-solid fa-arrow-left"></i>Back to Inbox
+                </a>
+            </div>
+        </div>
+    </div>
+</div>

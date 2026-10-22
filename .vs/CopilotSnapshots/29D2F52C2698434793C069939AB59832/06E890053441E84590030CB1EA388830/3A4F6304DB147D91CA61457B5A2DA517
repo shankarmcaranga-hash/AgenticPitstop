@@ -1,0 +1,91 @@
+﻿@{
+    ViewBag.Title = "Configuration";
+
+    var tab = (string)(ViewBag.Tab ?? "inflow-source");
+    var history = (DataTable)ViewBag.History;
+
+    var steps = new[]
+    {
+        ("inflow-source", "01 · Inflow",   "Define how work enters PITSTOP",  "1. Inflow Source"),
+        ("collections",   "02 · Data model","Collections and dynamic fields", "2. Collections & Fields"),
+        ("inbox-setup",   "03 · Inbox",     "Choose visible inflow columns",  "3. Inbox Setup"),
+        ("detail-setup",  "04 · Review",    "Compose the detail experience",  "4. Detail Setup")
+    };
+
+    ViewData["PageTitle"] = "Configuration workspace";
+    ViewData["PageSubtitle"] = "Extend portal behaviour through configuration instead of changing core UI code.";
+    ViewData["PageBreadcrumb"] = "Administration / Configuration";
+    ViewData["PageActions"] = "<button class=\"btn\" id=\"showHistoryButton\">" +
+                          "<i class=\"fa-solid fa-clock-rotate-left\"></i>Configuration history</button>";
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+<div class="stepper">
+    @foreach (var (key, title, caption, _) in steps)
+    {
+        <div class="step @(tab == key ? "active" : "")">
+            <strong>@title</strong>
+            <span>@caption</span>
+        </div>
+    }
+</div>
+
+<div class="tabs">
+    @foreach (var (key, _, _, label) in steps)
+    {
+        <a class="tab-button @(tab == key ? "active" : "")"
+           asp-action="Index" asp-route-tab="@key">@label</a>
+    }
+</div>
+
+<div id="configPanel">
+    @switch (tab)
+    {
+        case "collections":
+            @await Html.PartialAsync("_Collections")
+            break;
+        case "inbox-setup":
+            @await Html.PartialAsync("_InboxSetup")
+            break;
+        case "detail-setup":
+            @await Html.PartialAsync("_DetailSetup")
+            break;
+        default:
+            @await Html.PartialAsync("_InflowSource")
+            break;
+    }
+</div>
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+    (function ($) {
+        'use strict';
+
+        var history = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+            ApsMetadata.ToList(history).Select(h => new {
+                item = h["configitem"],
+                detail = h["detail"],
+                by = h["actionby"],
+                at = Convert.ToDateTime(h["actiondt"]).ToString("dd MMM yyyy · HH:mm")
+            })));
+
+        $('#showHistoryButton').on('click', function () {
+            if (!history.length) {
+                APS.toast('No configuration changes have been recorded yet.', 'info');
+                return;
+            }
+
+            var rows = history.map(function (entry) {
+                return '<li><strong>' + APS.escapeHtml(entry.item) + '</strong>' +
+                       '<span>' + APS.escapeHtml(entry.detail || '') + ' · ' +
+                       APS.escapeHtml(entry.by) + ' · ' + APS.escapeHtml(entry.at) + '</span></li>';
+            }).join('');
+
+            APS.openModal('Configuration history',
+                '<ul class="timeline">' + rows + '</ul>',
+                '<button class="btn" data-modal-close>Close</button>');
+        });
+    })(jQuery);
+</script>
+}

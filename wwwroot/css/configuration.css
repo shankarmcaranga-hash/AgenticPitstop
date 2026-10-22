@@ -1,0 +1,1048 @@
+﻿/* ===========================================================================
+   Configuration workspace: presentation only.
+   Scoped to .cfg-tabs and #configPanel so no other screen is affected.
+   =========================================================================== */
+
+/* --- step tabs ----------------------------------------------------------- */
+.cfg-tabs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+    margin: 4px 0 18px;
+}
+
+.cfg-tab {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text);
+    text-decoration: none;
+    min-width: 0;
+    transition: border-color .12s ease, background .12s ease, transform .12s ease;
+}
+
+    .cfg-tab:hover {
+        border-color: var(--brand);
+        transform: translateY(-1px);
+    }
+
+    .cfg-tab.active {
+        border-color: var(--brand);
+        background: var(--brand-soft);
+    }
+
+.cfg-tab-num {
+    flex: 0 0 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--surface-3);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.cfg-tab.active .cfg-tab-num {
+    background: var(--brand);
+    color: #fff;
+}
+
+.cfg-tab-text {
+    min-width: 0;
+}
+
+    .cfg-tab-text strong {
+        display: block;
+        font-size: 13px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .cfg-tab-text small {
+        display: block;
+        font-size: 11px;
+        color: var(--muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+/* --- cards and section headers -------------------------------------------- */
+#configPanel .card {
+    border-radius: 12px;
+}
+
+#configPanel .card-title {
+    font-size: 15px;
+}
+
+#configPanel .card-subtitle {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+#configPanel .section-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+    #configPanel .section-title-row label,
+    #configPanel .section-title-row strong {
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+#configPanel .input-help {
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+}
+
+#configPanel .callout {
+    border-radius: 10px;
+    font-size: 12px;
+}
+
+/* --- forms ---------------------------------------------------------------- */
+#configPanel .form-grid {
+    gap: 14px;
+}
+
+#configPanel .form-group label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+}
+
+#configPanel input:focus, #configPanel select:focus, #configPanel textarea:focus {
+    outline: none;
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px var(--brand-soft);
+}
+
+/* --- a freshly added row briefly highlights ------------------------------- */
+.cfg-added {
+    animation: cfg-flash 1.2s ease;
+}
+
+@keyframes cfg-flash {
+    0% {
+        background: var(--brand-soft);
+        box-shadow: 0 0 0 3px var(--brand-soft);
+    }
+
+    100% {
+        background: transparent;
+        box-shadow: none;
+    }
+}
+
+/* --- collections: list and editor ----------------------------------------- */
+#configPanel .collection-layout {
+    gap: 16px;
+}
+
+#configPanel .collection-list {
+    border-right: 1px solid var(--line);
+    padding-right: 12px;
+    max-height: calc(100vh - 280px);
+    overflow: auto;
+}
+
+#configPanel .collection-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    text-align: left;
+    cursor: pointer;
+}
+
+    #configPanel .collection-item:hover {
+        background: var(--surface-2);
+    }
+
+    #configPanel .collection-item.active {
+        border-color: var(--brand);
+        background: var(--brand-soft);
+    }
+
+#configPanel .collection-editor {
+    min-width: 0;
+}
+
+#configPanel .field-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+}
+
+    #configPanel .field-row:hover {
+        border-color: var(--brand);
+    }
+
+    #configPanel .field-row input, #configPanel .field-row select {
+        flex: 1;
+        min-width: 0;
+    }
+
+/* --- inbox setup: pick and order ------------------------------------------- */
+#configPanel .column-selector {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+#configPanel .available-columns {
+    max-height: 340px;
+    overflow: auto;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+}
+
+#configPanel .column-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+    #configPanel .column-check:hover {
+        background: var(--surface-2);
+    }
+
+    #configPanel .column-check input {
+        width: auto;
+    }
+
+#configPanel .reorder-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+#configPanel .reorder-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    font-size: 12px;
+}
+
+    #configPanel .reorder-item:hover {
+        border-color: var(--brand);
+    }
+
+#configPanel .drag-handle {
+    color: var(--muted);
+    cursor: grab;
+}
+
+/* --- inflow source: preview beside the form -------------------------------- */
+#configPanel .inflow-preview-frame {
+    border-radius: 10px;
+}
+
+#configPanel .inflow-dropzone {
+    border-radius: 10px;
+}
+
+#configPanel .inflow-chips .badge {
+    margin: 2px;
+}
+
+/* --- tables ---------------------------------------------------------------- */
+#configPanel .table-wrap {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: auto;
+}
+
+    #configPanel .table-wrap table {
+        margin: 0;
+    }
+
+    #configPanel .table-wrap thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: var(--surface-2);
+        white-space: nowrap;
+    }
+
+#configPanel tbody tr:hover td {
+    background: var(--surface-2);
+}
+
+/* --- buttons and toolbars --------------------------------------------------- */
+#configPanel .toolbar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+#configPanel .form-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+}
+
+#configPanel .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 36px 16px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+@media (max-width: 1100px) {
+    #configPanel .column-selector {
+        grid-template-columns: 1fr;
+    }
+
+    #configPanel .collection-list {
+        border-right: 0;
+        padding-right: 0;
+        max-height: 260px;
+    }
+}
+/* --- Inbox setup --------------------------------------------------------- */
+.is-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--line);
+}
+
+.is-bar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.is-picker {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.is-pane {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.is-pane-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+}
+
+    .is-pane-head strong {
+        font-size: 12px;
+    }
+
+.is-pane-tools {
+    display: flex;
+    gap: 6px;
+}
+
+.is-search {
+    position: relative;
+    padding: 10px 12px 0;
+}
+
+    .is-search i {
+        position: absolute;
+        left: 22px;
+        top: 50%;
+        transform: translateY(-25%);
+        color: var(--muted);
+        font-size: 12px;
+    }
+
+    .is-search input {
+        width: 100%;
+        padding-left: 30px;
+    }
+
+.is-list {
+    max-height: 360px;
+    overflow: auto;
+    padding: 8px 10px;
+}
+
+.is-check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+    .is-check:hover {
+        background: var(--surface-2);
+    }
+
+    .is-check input {
+        width: auto;
+    }
+
+.is-check-text strong {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.is-check-text small {
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.is-order {
+    list-style: none;
+    margin: 0;
+    padding: 8px 10px;
+    max-height: 408px;
+    overflow: auto;
+}
+
+.is-order-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    font-size: 13px;
+}
+
+    .is-order-item:hover {
+        border-color: var(--brand);
+    }
+
+.is-pos {
+    flex: 0 0 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.is-order-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.is-order-tools {
+    display: flex;
+    gap: 4px;
+}
+
+.is-order-empty {
+    padding: 20px 8px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+/* --- Inbox setup: preview ------------------------------------------------- */
+.is-preview {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface-2);
+    padding: 12px;
+}
+
+.is-kpis {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.is-kpi {
+    --tone: var(--brand);
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--tone);
+    border-radius: 8px;
+    background: var(--surface);
+}
+
+    .is-kpi span {
+        display: block;
+        font-size: 10px;
+        color: var(--muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .is-kpi strong {
+        font-size: 16px;
+    }
+
+.is-kpi-warning {
+    --tone: var(--warning);
+}
+
+.is-kpi-info {
+    --tone: var(--info);
+}
+
+.is-kpi-success {
+    --tone: var(--success);
+}
+
+.is-kpi-danger {
+    --tone: var(--danger);
+}
+
+.is-toolbar {
+    display: flex;
+    gap: 8px;
+    margin: 12px 0 10px;
+}
+
+.is-fake-input {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.is-fake-select {
+    justify-content: space-between;
+}
+
+.is-fake-btn {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 6px;
+    background: var(--brand);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.is-grid {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow-x: auto;
+}
+
+    .is-grid table {
+        font-size: 12px;
+        margin: 0;
+    }
+
+    .is-grid th {
+        white-space: nowrap;
+    }
+
+.is-ghost td {
+    height: 28px;
+    background: repeating-linear-gradient(45deg, var(--surface-2), var(--surface-2) 6px, var(--surface-3) 6px, var(--surface-3) 12px);
+}
+
+.is-preview-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 34px 12px;
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+}
+
+    .is-preview-empty i {
+        font-size: 22px;
+    }
+
+.is-none {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 40px 16px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+    .is-none strong {
+        font-size: 15px;
+        color: var(--text);
+    }
+
+.is-none-icon {
+    width: 52px;
+    height: 52px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 6px;
+    border-radius: 14px;
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-size: 22px;
+}
+
+@media (max-width: 1100px) {
+    .is-picker {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* --- Source Registry (and the same shapes in Checklist Master) ------------ */
+#configPanel .source-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-top: 4px;
+}
+
+    #configPanel .source-stats > div {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 14px 16px;
+        border: 1px solid var(--line);
+        border-left: 4px solid var(--brand);
+        border-radius: 10px;
+        background: var(--surface);
+    }
+
+        #configPanel .source-stats > div:nth-child(2) {
+            border-left-color: var(--success);
+        }
+
+        #configPanel .source-stats > div:nth-child(3) {
+            border-left-color: var(--info);
+        }
+
+    #configPanel .source-stats span {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .04em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    #configPanel .source-stats strong {
+        font-size: 24px;
+        line-height: 1.1;
+    }
+
+    #configPanel .source-stats small {
+        font-size: 11px;
+        color: var(--muted);
+    }
+
+/* toolbar: one line, search icon, sensible widths */
+#configPanel .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 12px 0 14px;
+}
+
+    #configPanel .toolbar input[type="search"] {
+        flex: 1 1 280px;
+        min-width: 0;
+        padding-left: 34px;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%2364748b'><path d='M11.74 10.34h-.67l-.24-.23a5.4 5.4 0 1 0-.59.59l.23.24v.67L14.6 16 16 14.6l-4.26-4.26Zm-5 0a3.74 3.74 0 1 1 0-7.48 3.74 3.74 0 0 1 0 7.48Z'/></svg>");
+        background-repeat: no-repeat;
+        background-position: 11px center;
+        background-size: 14px;
+    }
+
+    #configPanel .toolbar select {
+        flex: 0 0 190px;
+    }
+
+/* table */
+#configPanel #sourceTable td {
+    vertical-align: middle;
+}
+
+    #configPanel #sourceTable td:first-child strong {
+        display: block;
+        font-size: 13px;
+    }
+
+    #configPanel #sourceTable td:first-child small {
+        display: inline-block;
+        margin-top: 3px;
+        padding: 2px 7px;
+        border-radius: 5px;
+        background: var(--surface-3);
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 11px;
+        color: var(--muted);
+    }
+
+    #configPanel #sourceTable td:last-child {
+        white-space: nowrap;
+        text-align: right;
+    }
+
+        #configPanel #sourceTable td:last-child .btn + .btn {
+            margin-left: 6px;
+        }
+
+#configPanel #sourceTable .delete-source {
+    background: none;
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+    #configPanel #sourceTable .delete-source:hover {
+        background: var(--danger);
+        color: #fff;
+    }
+
+#configPanel #sourceTable tbody tr.is-hidden {
+    display: none;
+}
+
+/* the Add / Edit dialog */
+#configPanel .modal-card {
+    border-radius: 12px;
+}
+
+    #configPanel .modal-card .card-header {
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--line);
+    }
+
+    #configPanel .modal-card .form-group.full {
+        grid-column: 1 / -1;
+    }
+
+    #configPanel .modal-card .form-actions {
+        justify-content: flex-end;
+    }
+
+@media (max-width: 720px) {
+    #configPanel .toolbar input[type="search"],
+    #configPanel .toolbar select {
+        flex: 1 1 100%;
+    }
+}
+
+/* --- Checklist Master ---------------------------------------------------- */
+#configPanel #questionTable {
+    table-layout: fixed;
+}
+
+    #configPanel #questionTable th, #configPanel #questionTable td {
+        vertical-align: top;
+    }
+
+        /* # */
+        #configPanel #questionTable th:nth-child(1),
+        #configPanel #questionTable td:nth-child(1) {
+            width: 48px;
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        /* question and category */
+        #configPanel #questionTable td:nth-child(2) strong {
+            display: block;
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        #configPanel #questionTable td:nth-child(2) small {
+            display: inline-block;
+            margin-top: 5px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: var(--surface-3);
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+/* sources */
+#configPanel .source-availability-cell {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.5;
+}
+
+    #configPanel .source-availability-cell:not(:empty) {
+        display: table-cell;
+    }
+
+#configPanel #questionTable td.source-availability-cell {
+    max-width: 220px;
+    word-break: break-word;
+}
+
+/* prompts: keep rows even, full text on hover */
+#configPanel #questionTable td:nth-child(4),
+#configPanel #questionTable td:nth-child(5) {
+    max-width: 280px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* status and actions */
+#configPanel #questionTable th:nth-child(6),
+#configPanel #questionTable td:nth-child(6) {
+    width: 96px;
+}
+
+#configPanel #questionTable th:last-child,
+#configPanel #questionTable td:last-child {
+    width: 190px;
+    text-align: right;
+    white-space: nowrap;
+}
+
+    #configPanel #questionTable td:last-child .btn + .btn {
+        margin-left: 5px;
+    }
+
+#configPanel #questionTable .delete-question {
+    background: none;
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+    #configPanel #questionTable .delete-question:hover {
+        background: var(--danger);
+        color: #fff;
+    }
+
+#configPanel #questionTable tbody tr:hover td {
+    background: var(--surface-2);
+}
+
+/* the source picker inside the dialog */
+#configPanel .source-dropdown-container {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+}
+
+#configPanel .source-dropdown-header {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+#configPanel .source-list {
+    max-height: 220px;
+    overflow: auto;
+    padding: 6px;
+}
+
+#configPanel .source-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 6px;
+}
+
+    #configPanel .source-item:hover {
+        background: var(--surface-2);
+    }
+
+    #configPanel .source-item input {
+        width: auto;
+        margin-top: 2px;
+    }
+
+#configPanel .source-title {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+#configPanel .source-subtitle {
+    font-size: 11px;
+    color: var(--muted);
+}
+
+#configPanel .selected-source-names {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+#configPanel .selected-source-badge {
+    padding: 3px 9px;
+    border-radius: 12px;
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+#configPanel .category-modal-card {
+    max-width: 560px;
+}
+
+#configPanel .required {
+    color: var(--danger);
+    margin-left: 2px;
+}
+
+/* --- Folder Roots -------------------------------------------------------- */
+.fr-header {
+    padding: 20px 22px;
+}
+
+.fr-header-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.fr-title {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+    .fr-title h1 {
+        margin: 0;
+        font-size: 20px;
+    }
+
+    .fr-title p {
+        margin: 2px 0 0;
+        font-size: 13px;
+        color: var(--muted);
+    }
+
+.fr-title-icon {
+    width: 44px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-size: 20px;
+}
+
+.fr-right {
+    text-align: right;
+    white-space: nowrap;
+}
+
+    .fr-right .btn + .btn {
+        margin-left: 6px;
+    }
+
+.fr-none {
+    padding: 30px 12px;
+    text-align: center;
+    color: var(--muted);
+}
+/* -----------------------------------------------------------------------------
+   Detail Setup: tiles and tabs side by side, so the tabs are reachable without
+   scrolling past every tile. Falls back to stacked where the editor column is
+   too narrow to carry two forms.
+   ----------------------------------------------------------------------------- */
+.dl-editor-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+}
+
+    /* A grid column will not shrink below its content unless told to, which
+       would push the second column off the edge. */
+    .dl-editor-split > .dl-section {
+        min-width: 0;
+    }
+
+@media (max-width: 1400px) {
+    .dl-editor-split {
+        grid-template-columns: 1fr;
+    }
+}

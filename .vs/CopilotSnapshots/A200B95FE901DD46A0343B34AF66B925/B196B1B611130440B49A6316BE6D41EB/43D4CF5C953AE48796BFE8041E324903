@@ -1,0 +1,54 @@
+﻿using System.Data;
+using System.Text.RegularExpressions;
+using AgenticPitstop.Models;
+
+namespace AgenticPitstop.Infrastructure;
+
+public sealed class DynamicReportService
+{
+    private readonly ApsDb _db;
+
+    public DynamicReportService(ApsDb db) => _db = db;
+
+    public List<ReportMaster> GetReports()
+    {
+        return _db.Query("APS_ReportMaster_Get").AsEnumerable().Select(row => new ReportMaster
+        {
+            ReportId = Convert.ToInt32(row["reportid"]),
+            ReportName = Convert.ToString(row["reportname"]),
+            ProcedureName = Convert.ToString(row["procedurename"]),
+            IsActive = Convert.ToBoolean(row["isactive"])
+        }).ToList();
+    }
+
+    public List<DynamicParameter> GetParameters(int reportId)
+    {
+        return _db.Query("APS_ReportParameter_Get", p => ApsDb.In(p, "@reportid", reportId))
+            .AsEnumerable().Select(row => new DynamicParameter
+            {
+                Name = Convert.ToString(row["parametername"]),
+                ParameterType = Convert.ToString(row["parametertype"]),
+                ControlType = Convert.ToString(row["controltype"])
+            }).ToList();
+    }
+
+    public DataTable Execute(int reportId, IDictionary<string, string> values)
+    {
+        var report = GetReports().SingleOrDefault(x => x.ReportId == reportId && x.IsActive)
+            ?? throw new ArgumentException("The selected report is not available.");
+        var parameters = GetParameters(reportId);
+
+        if (!Regex.IsMatch(report.ProcedureName ?? string.Empty, "^[A-Za-z][A-Za-z0-9_.]*$"))
+            throw new InvalidOperationException("The configured report procedure name is invalid.");
+
+        return _db.Query(report.ProcedureName, p =>
+        {
+            foreach (var parameter in parameters)
+            {
+                values?.TryGetValue(parameter.Name, out var value);
+                ApsDb.In(p, parameter.Name.StartsWith("@") ? parameter.Name : "@" + parameter.Name,
+                    string.IsNullOrWhiteSpace(value) ? null : value);
+            }
+        });
+    }
+}

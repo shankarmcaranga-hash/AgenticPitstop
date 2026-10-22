@@ -1,0 +1,160 @@
+@{
+    @* Renders one tab or sub-tab. displaytype decides the shape; the field list
+       decides the content. Adding a new display type means adding one branch
+       here — everything else stays configuration.
+
+       This uses an if/else chain rather than a switch: Razor is finicky about
+       markup inside switch cases, and the chain compiles predictably. *@
+    var tab = (DataRow)ViewData["Tab"];
+    var fields = (List<DataRow>)ViewData["Fields"];
+    var record = (DataRow)ViewData["Record"];
+    var scope = (string)ViewData["Scope"];
+
+    var displayType = Convert.ToString(tab["displaytype"]);
+    var label = Convert.ToString(tab["label"]);
+
+    var description = displayType switch
+    {
+        "checklist" => "Validate the configured rules and AI findings.",
+        "summary" => "Review the configured field summary.",
+        "documents" => "Work through the supporting evidence for this record.",
+        "notes" => "Reviewer notes captured against this record.",
+        _ => "Review the configured data for this work item."
+    };
+
+    string Value(DataRow field)
+    {
+        var value = ApsMetadata.Cell(record, Convert.ToString(field["fieldname"]));
+        return string.IsNullOrWhiteSpace(value) ? "—" : value;
+    }
+}
+
+<div class="review-tab-content">
+    <div class="review-content-heading">
+        <div>
+            <span class="review-eyebrow">@scope</span>
+            <h3>@label</h3>
+            <p>@description</p>
+        </div>
+        <span class="badge badge-neutral">@fields.Count configured fields</span>
+    </div>
+
+    @if (fields.Count == 0)
+    {
+        <div class="callout callout-warning">
+            No fields are assigned here. Assign fields in Configuration &rarr; Detail Setup.
+        </div>
+    }
+    else if (displayType == "summary")
+    {
+        <div class="review-summary-grid">
+            @foreach (var field in fields)
+            {
+                <div class="summary-card">
+                    <span class="summary-label">
+                        @field["fieldname"]
+                        @if (Convert.ToBoolean(field["isrequired"]))
+                        {
+                            <em class="required-flag" title="Required">*</em>
+                        }
+                    </span>
+                    <strong class="summary-value">@Value(field)</strong>
+                </div>
+            }
+        </div>
+    }
+    else if (displayType == "checklist")
+    {
+        <ul class="checklist">
+            @foreach (var field in fields)
+            {
+                var raw = ApsMetadata.Cell(record, Convert.ToString(field["fieldname"]));
+                var required = Convert.ToBoolean(field["isrequired"]);
+                var satisfied = !string.IsNullOrWhiteSpace(raw);
+                var state = satisfied ? "ok" : required ? "fail" : "warn";
+                var icon = satisfied ? "fa-check" : required ? "fa-xmark" : "fa-minus";
+                var note = satisfied ? raw
+                         : required ? "Required value is missing."
+                         : "No value supplied.";
+
+                <li class="checklist-item">
+                    <span class="checklist-status @state"><i class="fa-solid @icon"></i></span>
+                    <div>
+                        <strong>@field["fieldname"]</strong>
+                        <span>@note</span>
+                    </div>
+                </li>
+            }
+        </ul>
+    }
+    else if (displayType == "notes")
+    {
+        <div class="notes-panel">
+            @foreach (var field in fields)
+            {
+                <div class="note-item">
+                    <span class="input-help">@field["fieldname"]</span>
+                    <p>@Value(field)</p>
+                </div>
+            }
+        </div>
+    }
+    else if (displayType == "documents")
+    {
+        @* Supporting documents are not stored by the portal yet. This says so
+           plainly rather than rendering placeholder pages that would look like a
+           working viewer. *@
+        <div class="evidence-layout">
+            <div class="evidence-preview-panel">
+                <div class="callout callout-warning">
+                    No document store is connected to this instance. Once supporting
+                    documents are ingested they appear here with the preview controls.
+                </div>
+            </div>
+            <div class="viewer-generic-panel">
+                @foreach (var field in fields)
+                {
+                    <div class="evidence-field-row">
+                        <span>@field["fieldname"]</span>
+                        <strong>@Value(field)</strong>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr><th>Field</th><th>Value</th><th>Required</th></tr>
+                </thead>
+                <tbody>
+                @foreach (var field in fields)
+                {
+                    var raw = ApsMetadata.Cell(record, Convert.ToString(field["fieldname"]));
+                    var required = Convert.ToBoolean(field["isrequired"]);
+                    var missing = string.IsNullOrWhiteSpace(raw);
+
+                    <tr>
+                        <td><strong>@field["fieldname"]</strong></td>
+                        <td>@Value(field)</td>
+                        <td>
+                            @if (required)
+                            {
+                                <span class="badge @(missing ? "badge-danger" : "badge-success")">
+                                    @(missing ? "Missing" : "Present")
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge badge-neutral">Optional</span>
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

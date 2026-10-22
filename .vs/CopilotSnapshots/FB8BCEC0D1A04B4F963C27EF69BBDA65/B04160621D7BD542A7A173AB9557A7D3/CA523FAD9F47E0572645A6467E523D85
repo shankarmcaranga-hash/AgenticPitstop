@@ -1,0 +1,292 @@
+﻿using System.Data;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using AgenticPitstop.Infrastructure;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.SqlClient;
+
+namespace AgenticPitstop.Controllers;
+
+[ApsAuthorize]
+public sealed class InboxController : ApsController
+{
+    private const int MaxRows = 500;
+
+    public InboxController(ApsDb db, ApsIdentity identity, ApsMetadata meta)
+        : base(db, identity, meta) { }
+
+    protected override string ActiveScreenKey => "inbox";
+
+    [HttpGet]
+    public IActionResult Index(int useCaseId = 0, string status = null, string search = null)
+    {
+        var useCases = LoadUseCases();
+        ViewBag.UseCases = useCases;
+
+        if (useCaseId == 0 && useCases.Rows.Count == 1)
+            useCaseId = ToInt(useCases.Rows[0], "UseCaseID");
+
+        if (useCaseId > 0 && !useCases.AsEnumerable().Any(r => ToInt(r, "UseCaseID") == useCaseId))
+            useCaseId = 0;
+
+        ViewBag.SelectedUseCaseId = useCaseId;
+        ViewBag.Search = search;
+        ViewBag.Status = status;
+
+        if (useCaseId == 0)
+        {
+            ViewBag.Kpi = NewKpiTable();
+            ViewBag.DataColumns = new List<Dictionary<string, string>>();
+            ViewBag.Records = new List<Dictionary<string, object>>();
+            ViewBag.StatusColumns = new List<string>();
+            ViewBag.StatusRows = new List<Dictionary<string, object>>();
+            return View();
+        }
+
+        ViewBag.Kpi = Db.Query("APS_InflowData_GetKpi", p =>
+        {
+            ApsDb.In(p, "@UseCaseID", useCaseId);
+        });
+
+        var inboxConfig = Db.QueryMultiple("APS_InboxConfig_Get", p =>
+        {
+            ApsDb.In(p, "@UseCaseID", useCaseId);
+        });
+
+        var configRows = inboxConfig.Tables.Count > 0 ? inboxConfig.Tables[0] : new DataTable();
+        var columnRows = inboxConfig.Tables.Count > 1 ? inboxConfig.Tables[1] : new DataTable();
+
+        var dataColumns = columnRows.AsEnumerable()
+            .Where(r => ToInt(r, "GridType") == 1)
+            .OrderBy(r => ToInt(r, "SortOrder"))
+            .Select(r => new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["FieldCode"] = ToText(r, "FieldCode"),
+                ["DisplayName"] = ToText(r, "DisplayName")
+            })
+            .Where(r => !string.IsNullOrWhiteSpace(r["FieldCode"]))
+            .ToList();
+
+        ViewBag.DataColumns = dataColumns;
+
+        var rawRows = Db.Query("APS_InflowData_Get", p =>
+        {
+            ApsDb.In(p, "@UseCaseID", useCaseId);
+            ApsDb.In(p, "@ReviewStatus", string.IsNullOrWhiteSpace(status) ? null : status.Trim());
+            ApsDb.In(p, "@Top", MaxRows);
+        });
+
+        var records = new List<Dictionary<string, object>>(rawRows.Rows.Count);
+        foreach (DataRow row in rawRows.Rows)
+        {
+            var flat = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["InflowDataID"] = ToInt(row, "InflowDataID"),
+                ["RowNumber"] = ToInt(row, "RowNumber"),
+                ["ReviewStatusCode"] = ToText(row, "ReviewStatusCode"),
+                ["ValidationStatusCode"] = ToText(row, "ValidationStatusCode"),
+                ["ValidationMessage"] = ToText(row, "ValidationMessage")
+            };
+
+            var rowValues = ParseRowData(ToText(row, "RowDataJson"));
+            foreach (var column in dataColumns)
+            {
+                var fieldCode = column["FieldCode"];
+                flat[fieldCode] = rowValues.TryGetValue(fieldCode, out var value) ? value : string.Empty;
+            }
+
+            records.Add(flat);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            records = records.Where(record =>
+                    dataColumns.Any(column =>
+                    {
+                        var key = column["FieldCode"];
+                        var value = record.TryGetValue(key, out var cell) ? Convert.ToString(cell) : string.Empty;
+                        return value?.Contains(term, StringComparison.OrdinalIgnoreCase) == true;
+                    }))
+                .ToList();
+        }
+
+        ViewBag.Records = records;
+
+        try
+        {
+            var statusProcedure = configRows.AsEnumerable()
+                .Where(r => ToInt(r, "GridType") == 2)
+                .Select(r => ToText(r, "StatusProcedureName"))
+                .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name));
+
+            statusProcedure ??= "APS_InboxStatus_Default";
+
+            if (!IsApprovedProcedureName(statusProcedure))
+                throw new InvalidOperationException("Configured status procedure name is invalid.");
+
+            var statusRows = Db.Query(statusProcedure, p =>
+            {
+                ApsDb.In(p, "@UseCaseID", useCaseId);
+                ApsDb.In(p, "@UserName", ActionBy);
+            });
+
+            ViewBag.StatusColumns = statusRows.Columns.Cast<DataColumn>().Select(c => c.ColumnName).ToList();
+            ViewBag.StatusRows = ApsMetadata.ToList(statusRows);
+        }
+        catch (Exception ex)
+        {
+            ViewBag.StatusError = ex.Message;
+            ViewBag.StatusColumns = new List<string>();
+            ViewBag.StatusRows = new List<Dictionary<string, object>>();
+        }
+
+        return View();
+    }
+
+    [HttpGet]
+    public IActionResult Detail(int id)
+    {
+        var record = Db.QuerySingle("APS_InflowData_GetById", p => ApsDb.In(p, "@InflowDataID", id));
+        if (record == null)
+        {
+            TempData["ApsMessage"] = "That record no longer exists.";
+            return RedirectToAction(nameof(Index));
+        }
+
+        var useCaseId = ToInt(record, "UseCaseID");
+        if (!IsUseCaseMapped(useCaseId))
+            return RedirectToAction("Denied", "Home");
+
+        var rowValues = ParseRowData(ToText(record, "RowDataJson"));
+
+        var activeConfig = Db.QueryMultiple("APS_InflowConfig_GetActive", p =>
+        {
+            ApsDb.In(p, "@UseCaseID", useCaseId);
+        });
+
+        var columns = activeConfig.Tables.Count > 1 ? activeConfig.Tables[1] : new DataTable();
+        var detailRows = columns.AsEnumerable()
+            .Where(r => ToInt(r, "ShowInDetail") == 1)
+            .OrderBy(r => ToInt(r, "SortOrder"))
+            .ToList();
+
+        if (detailRows.Count == 0)
+        {
+            detailRows = columns.AsEnumerable()
+                .OrderBy(r => ToInt(r, "SortOrder"))
+                .ToList();
+        }
+
+        var fields = detailRows.Select(r => new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["FieldCode"] = ToText(r, "FieldCode"),
+            ["DisplayName"] = FirstNonEmpty(ToText(r, "ExcelColumnName"), ToText(r, "FieldCode")),
+            ["IsRequired"] = ToInt(r, "IsRequired") == 1
+        }).ToList();
+
+        ViewBag.Record = ApsMetadata.ToDictionary(record);
+        ViewBag.Fields = fields;
+        ViewBag.Values = rowValues;
+
+        return View();
+    }
+
+    [HttpPost]
+    public IActionResult SaveReview(int inflowDataId, string reviewStatusCode, string reviewComment)
+    {
+        var outputs = Db.ExecuteWithOutput("APS_InflowData_SaveReview", p =>
+        {
+            ApsDb.In(p, "@InflowDataID", inflowDataId);
+            ApsDb.In(p, "@ReviewStatusCode", reviewStatusCode);
+            ApsDb.In(p, "@ReviewComment", string.IsNullOrWhiteSpace(reviewComment) ? null : reviewComment.Trim());
+            ApsDb.In(p, "@ActionBy", ActionBy);
+            ApsDb.Out(p, "@success", SqlDbType.Bit);
+            ApsDb.Out(p, "@message", SqlDbType.NVarChar, 2000);
+        });
+
+        return FromProcedure(outputs);
+    }
+
+    private DataTable LoadUseCases() => Db.Query("APS_UseCaseMaster_Get", p =>
+    {
+        ApsDb.In(p, "@ClientID", null);
+        ApsDb.In(p, "@ProcessID", null);
+        ApsDb.In(p, "@UserName", Identity.IsInRole(ApsIdentity.RoleAdmin) ? null : ActionBy);
+    });
+
+    private bool IsUseCaseMapped(int useCaseId)
+    {
+        if (useCaseId <= 0)
+            return false;
+
+        var outputs = Db.ExecuteWithOutput("APS_UserUseCaseMapping_Check", p =>
+        {
+            ApsDb.In(p, "@UserName", ActionBy);
+            ApsDb.In(p, "@UseCaseID", useCaseId);
+            ApsDb.Out(p, "@IsAllowed", SqlDbType.Bit);
+        });
+
+        return outputs.TryGetValue("IsAllowed", out var value) && value != null && Convert.ToBoolean(value);
+    }
+
+    private static Dictionary<string, string> ParseRowData(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            return parsed == null
+                ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(parsed, StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private static bool IsApprovedProcedureName(string procedureName) =>
+        !string.IsNullOrWhiteSpace(procedureName)
+        && procedureName.StartsWith("APS_", StringComparison.Ordinal)
+        && Regex.IsMatch(procedureName, "^[A-Za-z][A-Za-z0-9_]*$");
+
+    private static DataTable NewKpiTable()
+    {
+        var table = new DataTable();
+        table.Columns.Add("ReviewStatusCode", typeof(string));
+        table.Columns.Add("RecordCount", typeof(int));
+        return table;
+    }
+
+    private static int ToInt(DataRow row, string name)
+    {
+        var value = ReadValue(row, name);
+        return value == null ? 0 : Convert.ToInt32(value);
+    }
+
+    private static string ToText(DataRow row, string name)
+    {
+        var value = ReadValue(row, name);
+        return value == null ? string.Empty : Convert.ToString(value) ?? string.Empty;
+    }
+
+    private static object ReadValue(DataRow row, string name)
+    {
+        if (row == null || row.Table == null)
+            return null;
+
+        var column = row.Table.Columns.Cast<DataColumn>()
+            .FirstOrDefault(c => string.Equals(c.ColumnName, name, StringComparison.OrdinalIgnoreCase));
+        if (column == null)
+            return null;
+
+        var value = row[column];
+        return value == DBNull.Value ? null : value;
+    }
+
+    private static string FirstNonEmpty(string first, string second) =>
+        !string.IsNullOrWhiteSpace(first) ? first : second;
+}

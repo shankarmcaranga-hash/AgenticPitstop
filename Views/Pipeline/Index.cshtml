@@ -1,0 +1,55 @@
+﻿@using System.Data
+@using System.Text.Json
+@{
+    ViewBag.Title = "Collection Pipelines";
+    ViewData["PageTitle"] = "Collection Pipelines";
+    ViewData["PageSubtitle"] = "Fill collections from APIs: call, loop, map and schedule.";
+    ViewData["PageBreadcrumb"] = "API Configurator / Collection Pipelines";
+
+    var useCases = ((DataTable)ViewBag.UseCases ?? new DataTable()).AsEnumerable()
+        .Select(r => new
+        {
+            id = ApsMetadata.Cell(r, "UseCaseID"),
+            label = ApsMetadata.Cell(r, "UseCaseName")
+        }).ToList();
+
+    var urls = new
+    {
+        list = Url.Action("List"),
+        get = Url.Action("Get"),
+        catalog = Url.Action("Catalog"),
+        columns = Url.Action("CollectionColumns"),
+        request = Url.Action("ConnectorRequest"),
+        records = Url.Action("SampleRecords"),
+        save = Url.Action("Save"),
+        publish = Url.Action("Publish"),
+        status = Url.Action("SetStatus"),
+        send = Url.Action("Send"),
+        test = Url.Action("TestRun"),
+        run = Url.Action("Run"),
+        runs = Url.Action("Runs"),
+        runItems = Url.Action("RunItems")
+    };
+}
+
+<partial name="_PageHeader" />
+<link rel="stylesheet" href="~/css/pipeline.css" asp-append-version="true" />
+
+<div id="pipelineApp" class="pl-app"
+     data-urls="@JsonSerializer.Serialize(urls)"
+     data-use-cases="@JsonSerializer.Serialize(useCases)">
+    <aside class="card pl-list">
+        <div class="pl-list-head">
+            <strong>Pipelines</strong>
+            <button type="button" class="btn btn-sm btn-primary" data-act="new-pipeline">
+                <i class="fa-solid fa-plus"></i>New
+            </button>
+        </div>
+        <div id="plList"></div>
+    </aside>
+    <section class="card pl-main" id="plEditor"></section>
+</div>
+
+@section Scripts {
+    <script src="~/js/pipeline.js" asp-append-version="true"></script>
+}

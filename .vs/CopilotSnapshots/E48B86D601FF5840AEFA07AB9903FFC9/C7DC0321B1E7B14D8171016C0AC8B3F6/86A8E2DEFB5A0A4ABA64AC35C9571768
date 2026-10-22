@@ -1,0 +1,366 @@
+﻿@{
+    ViewBag.Title = "Inbox Detail";
+
+    var notConfigured = ViewBag.NotConfigured == true;
+    var record = ViewBag.Record as DataRow;
+    var config = ViewBag.Config as DataRow;
+
+    var primaryTabs = ViewBag.PrimaryTabs as List<DataRow> ?? new List<DataRow>();
+    var subTabs = ViewBag.SubTabs as List<DataRow> ?? new List<DataRow>();
+    var headerFields = ViewBag.HeaderFields as List<DataRow> ?? new List<DataRow>();
+    var tabFields = ViewBag.TabFields as List<DataRow> ?? new List<DataRow>();
+    var reviews = ViewBag.Reviews as DataTable;
+
+    var mode = notConfigured ? (byte)1 : Convert.ToByte(ViewBag.Mode);
+    var evidenceMode = mode == 2;
+
+    var caseLabel = record == null
+        ? ""
+        : headerFields.Select(f => ApsMetadata.Cell(record, Convert.ToString(f["fieldname"])))
+                      .FirstOrDefault(v => !string.IsNullOrWhiteSpace(v)) ?? $"#{record["ifdid"]}";
+
+    ViewData["PageTitle"] = "Inbox Detail";
+    ViewData["PageSubtitle"] = $"Review the AI recommendation and configured data for {caseLabel}.";
+    ViewData["PageBreadcrumb"] = "Work / Inbox / Detail";
+    ViewData["PageActions"] = $"<a class=\"btn\" href=\"{Url.Action("Index", "Inbox")}\">" +
+                          "<i class=\"fa-solid fa-arrow-left\"></i>Back to Inbox</a>";
+
+    List<DataRow> SubTabsOf(DataRow tab) => subTabs
+        .Where(s => Convert.ToInt16(s["parenttabid"]) == Convert.ToInt16(tab["dtid"]))
+        .ToList();
+
+    List<DataRow> FieldsOf(DataRow tab) => tabFields
+        .Where(f => f["dtid"] != DBNull.Value &&
+                    Convert.ToInt16(f["dtid"]) == Convert.ToInt16(tab["dtid"]))
+        .OrderBy(f => Convert.ToInt16(f["sortorder"]))
+        .ToList();
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+@if (notConfigured)
+{
+    <div class="card">
+        <div class="card-body">
+            @{
+                ViewData["EmptyIcon"] = "fa-layer-group";
+                ViewData["EmptyHeading"] = "The detail screen is not composed yet";
+                ViewData["EmptyMessage"] = "An Admin needs to choose a workspace type and configure header fields and tabs in Configuration → Detail Setup.";
+            }
+            @await Html.PartialAsync("_EmptyState")
+        </div>
+    </div>
+}
+else
+{
+    var confidence = ApsMetadata.Cell(record, "aiconfidence");
+    var confidenceValue = int.TryParse(confidence, out var parsed) ? parsed : 0;
+    var confidenceClass = confidenceValue >= 90 ? "badge-success"
+                        : confidenceValue >= 75 ? "badge-warning" : "badge-danger";
+    var status = ApsMetadata.Cell(record, "reviewstatus");
+
+    <div class="detail-context-bar card">
+        <div class="detail-context-main">
+            <span class="detail-context-id">IFDID #@record["ifdid"]</span>
+            <div>
+                <strong>@caseLabel</strong>
+                <span>Batch @record["ifid"]</span>
+            </div>
+        </div>
+        <div class="detail-context-meta">
+            <span class="badge @BadgeFor(status)">@status</span>
+            @if (confidenceValue > 0)
+            {
+                <span class="badge @confidenceClass">@confidenceValue% AI confidence</span>
+            }
+        </div>
+    </div>
+
+    <div class="review-workspace @(evidenceMode ? "evidence-review-workspace" : "data-review-workspace")">
+
+        @* ---- Header / summary fields ------------------------------------- *@
+        <div class="review-overview-grid @(Convert.ToBoolean(config["knowledgeai"]) ? "" : "single")">
+            <section class="card review-context-card">
+                <div class="card-header card-title-row">
+                    <div>
+                        <h2 class="card-title">Review context</h2>
+                        <p class="card-subtitle">Header fields configured for this workspace.</p>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="review-field-grid">
+                        @foreach (var field in headerFields)
+                        {
+                            var name = Convert.ToString(field["fieldname"]);
+                            var required = Convert.ToBoolean(field["isrequired"]);
+                            var value = ApsMetadata.Cell(record, name);
+                            <div class="review-field-item">
+                                <span class="review-field-icon"><i class="fa-solid fa-tag"></i></span>
+                                <div>
+                                    <span>
+                                        @name
+                                        @if (required)
+                                        {
+                                            <em class="required-flag" title="Required field">*</em>
+                                        }
+                                    </span>
+                                    <strong>@(string.IsNullOrWhiteSpace(value) ? "—" : value)</strong>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </section>
+
+            @if (Convert.ToBoolean(config["knowledgeai"]))
+            {
+                <section class="card review-assistant-card">
+                    <div class="card-header">
+                        <h2 class="card-title">Knowledge AI</h2>
+                        <p class="card-subtitle">Contextual assistance for this review.</p>
+                    </div>
+                    <div class="card-body assistant-card-body">
+                        <div class="assistant-message">
+                            <span class="assistant-avatar">AI</span>
+                            <div>
+                                <strong>AI recommendation</strong>
+                                <p>@(string.IsNullOrWhiteSpace(ApsMetadata.Cell(record, "aisummary"))
+                                     ? "No agent summary has been written for this record yet."
+                                     : ApsMetadata.Cell(record, "aisummary"))</p>
+                            </div>
+                        </div>
+                        <div class="assistant-input">
+                            <input placeholder="Ask Knowledge AI..." id="assistantInput" />
+                            <button class="btn btn-primary" id="assistantSend">
+                                <i class="fa-solid fa-paper-plane"></i>Send
+                            </button>
+                        </div>
+                    </div>
+                </section>
+            }
+        </div>
+
+        @* ---- Tabs --------------------------------------------------------- *@
+        <section class="card review-tab-card">
+            <div class="review-tab-header">
+                <div class="review-primary-tabs">
+                    @for (var index = 0; index < primaryTabs.Count; index++)
+                    {
+                        var tab = primaryTabs[index];
+                        <button class="review-primary-tab @(index == 0 ? "active" : "")"
+                                data-detail-tab="@tab["dtid"]">
+                            <span><i class="fa-solid @(string.IsNullOrWhiteSpace(Convert.ToString(tab["icon"])) ? "fa-table-list" : Convert.ToString(tab["icon"]))"></i></span>
+                            <strong>@tab["label"]</strong>
+                            @if (tab["badge"] != DBNull.Value && Convert.ToInt16(tab["badge"]) > 0)
+                            {
+                                <b>@tab["badge"]</b>
+                            }
+                        </button>
+                    }
+                </div>
+            </div>
+
+            @foreach (var tab in primaryTabs)
+            {
+                var children = SubTabsOf(tab);
+                var isFirst = tab == primaryTabs[0];
+
+                <div class="detail-tab-panel" data-tab-panel="@tab["dtid"]"
+                     style="@(isFirst ? "" : "display:none")">
+
+                    @if (children.Count > 0)
+                    {
+                        <div class="review-subtab-bar">
+                            @for (var index = 0; index < children.Count; index++)
+                            {
+                                <button class="review-subtab @(index == 0 ? "active" : "")"
+                                        data-detail-subtab="@children[index]["dtid"]"
+                                        data-parent="@tab["dtid"]">
+                                    <span>@children[index]["label"]</span>
+                                </button>
+                            }
+                        </div>
+
+                        @foreach (var child in children)
+                        {
+                            var isFirstChild = child == children[0];
+                            <div class="detail-subtab-panel" data-subtab-panel="@child["dtid"]"
+                                 style="@(isFirstChild ? "" : "display:none")">
+                                @await Html.PartialAsync("_DetailContent", new ViewDataDictionary(ViewData)
+                                {
+                                    ["Tab"] = child,
+                                    ["Fields"] = FieldsOf(child),
+                                    ["Record"] = record,
+                                    ["Scope"] = "Sub-tab"
+                                })
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        @await Html.PartialAsync("_DetailContent", new ViewDataDictionary(ViewData)
+                        {
+                            ["Tab"] = tab,
+                            ["Fields"] = FieldsOf(tab),
+                            ["Record"] = record,
+                            ["Scope"] = "Primary tab"
+                        })
+                    }
+                </div>
+            }
+        </section>
+    </div>
+
+    @* ---- Review actions ------------------------------------------------- *@
+    <div class="detail-review-drawer">
+        <div class="review-recommendation">
+            <span class="review-recommendation-label">AI recommendation</span>
+            <strong>@(string.IsNullOrWhiteSpace(ApsMetadata.Cell(record, "aisummary"))
+                      ? "No agent summary available."
+                      : ApsMetadata.Cell(record, "aisummary"))</strong>
+        </div>
+        <div class="action-bar">
+            @if (Convert.ToBoolean(config["allowapprove"]))
+            {
+                <button class="btn btn-success" data-review="Approved">
+                    <i class="fa-solid fa-check"></i>Approve
+                </button>
+            }
+            @if (Convert.ToBoolean(config["allowreject"]))
+            {
+                <button class="btn btn-danger" data-review="Rejected">
+                    <i class="fa-solid fa-xmark"></i>Reject
+                </button>
+            }
+            @if (Convert.ToBoolean(config["allowclarify"]))
+            {
+                <button class="btn" data-review="Needs Clarification">
+                    <i class="fa-solid fa-circle-question"></i>Request clarification
+                </button>
+            }
+        </div>
+    </div>
+
+    <div class="grid layout-2-1 detail-secondary-panels" style="margin-top:14px">
+        @if (Convert.ToBoolean(config["allowcomments"]))
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Reviewer comments</h2>
+                    <p class="card-subtitle">Captured with the decision and kept in the audit trail.</p>
+                </div>
+                <div class="card-body">
+                    <textarea id="reviewComments" placeholder="Explain the decision, evidence checked, or what clarification is needed..."></textarea>
+                </div>
+            </div>
+        }
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Review history</h2>
+                <p class="card-subtitle">Decisions recorded against this record.</p>
+            </div>
+            <div class="card-body">
+                @if (reviews == null || reviews.Rows.Count == 0)
+                {
+                    <p class="input-help">No decision has been recorded yet.</p>
+                }
+                else
+                {
+                    <ul class="timeline">
+                        @foreach (DataRow review in reviews.Rows)
+                        {
+                            <li>
+                                <strong>@review["decision"]</strong>
+                                <span>
+                                    @review["reviewedby"] ·
+                                    @Convert.ToDateTime(review["reviewedon"]).ToString("dd MMM yyyy · HH:mm")
+                                </span>
+                                @if (review["comments"] != DBNull.Value &&
+                                     !string.IsNullOrWhiteSpace(Convert.ToString(review["comments"])))
+                                {
+                                    <span>@review["comments"]</span>
+                                }
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@functions {
+    static string BadgeFor(string status)
+    {
+        var value = (status ?? string.Empty).ToLowerInvariant();
+        if (value.Contains("approved")) return "badge-success";
+        if (value.Contains("reject")) return "badge-danger";
+        if (value.Contains("pending") || value.Contains("clarification") || value.Contains("processing"))
+            return "badge-warning";
+        return "badge-neutral";
+    }
+}
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+    (function ($) {
+        'use strict';
+
+        // Primary tabs
+        $(document).on('click', '[data-detail-tab]', function () {
+            var id = String($(this).data('detail-tab'));
+            $('.review-primary-tab').removeClass('active');
+            $(this).addClass('active');
+            $('.detail-tab-panel').hide();
+            $('[data-tab-panel="' + id + '"]').show();
+        });
+
+        // Sub-tabs, scoped to their parent so ids never collide
+        $(document).on('click', '[data-detail-subtab]', function () {
+            var id = String($(this).data('detail-subtab'));
+            var parent = String($(this).data('parent'));
+            var $panel = $('[data-tab-panel="' + parent + '"]');
+
+            $panel.find('.review-subtab').removeClass('active');
+            $(this).addClass('active');
+            $panel.find('.detail-subtab-panel').hide();
+            $panel.find('[data-subtab-panel="' + id + '"]').show();
+        });
+
+        // Review decision
+        $(document).on('click', '[data-review]', function () {
+            var decision = $(this).data('review');
+            var comments = $('#reviewComments').val() || '';
+            var button = this;
+
+            if (decision === 'Needs Clarification' && !comments.trim()) {
+                APS.toast('Add a comment explaining what clarification is needed.', 'error');
+                $('#reviewComments').trigger('focus');
+                return;
+            }
+
+            APS.confirmAction('Confirm decision',
+                'Record this record as "' + decision + '"? The decision is written to the audit trail.',
+                decision,
+                function () {
+                    APS.busy(button, APS.post('@Url.Action("Review", "Inbox")', {
+                        ifdid: @(record == null ? 0 : Convert.ToInt32(record["ifdid"])),
+                        decision: decision,
+                        comments: comments
+                    })).then(function (response) {
+                        if (!response.success) { return; }
+                        APS.toast(response.message, 'success');
+                        window.setTimeout(function () {
+                            window.location.href = '@Url.Action("Index", "Inbox")';
+                        }, 900);
+                    });
+                });
+        });
+
+        $('#assistantSend').on('click', function () {
+            APS.toast('Knowledge AI is not wired to an agent endpoint in this build.', 'info');
+        });
+    })(jQuery);
+</script>
+}

@@ -1,0 +1,257 @@
+@using System.Data
+@{
+    ViewBag.Title = "Inflow";
+
+    var useCases = ViewBag.UseCases as DataTable ?? new DataTable();
+    var selectedUseCaseId = ViewBag.UseCaseId is int value ? value : 0;
+    var config = ViewBag.Config as DataRow;
+    var templateColumns = ViewBag.TemplateColumns as DataTable ?? new DataTable();
+    var history = ViewBag.History as DataTable ?? new DataTable();
+    var hasTemplate = config != null && templateColumns.Rows.Count > 0;
+    var versionNo = config == null ? "" : GetValue(config, "VersionNo");
+}
+
+<div class="card">
+    <div class="card-body">
+        <div class="card-title">Inflow</div>
+        <div class="card-subtitle">Upload Excel files for the selected use case.</div>
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="useCaseId">Use case</label>
+                <select id="useCaseId">
+                    <option value="0">Select a use case</option>
+                    @foreach (DataRow useCase in useCases.Rows)
+                    {
+                        var idText = GetValue(useCase, "UseCaseID");
+                        var code = GetValue(useCase, "UseCaseCode");
+                        var name = GetValue(useCase, "UseCaseName");
+                        var label = string.IsNullOrWhiteSpace(code) ? name : $"{code} - {name}";
+                        <option value="@idText" selected="@(idText == selectedUseCaseId.ToString())">@label</option>
+                    }
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Active template</label>
+                @if (hasTemplate)
+                {
+                    <div><span class="badge badge-info">Version @versionNo</span></div>
+                }
+                else
+                {
+                    <div><span class="badge badge-warning">Not configured</span></div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (selectedUseCaseId == 0)
+{
+    <div class="card"><div class="card-body"><div class="empty-state">Choose a use case to continue.</div></div></div>
+}
+else
+{
+    if (!hasTemplate)
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="empty-state">No active template found. An administrator must configure a template first.</div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="card-title">Expected columns</div>
+                <div class="toolbar">
+                    @foreach (DataRow row in templateColumns.Rows)
+                    {
+                        var name = GetValue(row, "ExcelColumnName");
+                        var isRequired = IsTrue(row, "IsRequired");
+                        <span class="badge @(isRequired ? "badge-danger" : "badge-neutral")">@name</span>
+                    }
+                </div>
+
+                <div class="card" id="dropZone">
+                    <div class="card-body">
+                        <div class="card-subtitle">Drop `.xlsx` file here</div>
+                        <div class="form-actions">
+                            <input id="fileInput" type="file" accept=".xlsx" style="display:none" />
+                            <button id="chooseFile" type="button" class="btn btn-primary btn-sm">Choose file</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="uploadMessage" class="empty-state" style="display:none"></div>
+            </div>
+        </div>
+    }
+
+    <div class="card">
+        <div class="card-body">
+            <div class="card-title">Upload History</div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Batch</th>
+                            <th>File</th>
+                            <th>Rows</th>
+                            <th>Valid</th>
+                            <th>Invalid</th>
+                            <th>Uploaded By</th>
+                            <th>Uploaded On</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (history.Rows.Count == 0)
+                        {
+                            <tr><td colspan="8">No uploads yet.</td></tr>
+                        }
+                        else
+                        {
+                            foreach (DataRow row in history.Rows)
+                            {
+                                var invalidCount = ToInt(row, "InvalidRowCount");
+                                var inflowId = GetValue(row, "InflowID");
+                                <tr>
+                                    <td>@inflowId</td>
+                                    <td>@GetValue(row, "OriginalFileName")</td>
+                                    <td>@GetValue(row, "TotalRowCount")</td>
+                                    <td>@GetValue(row, "ValidRowCount")</td>
+                                    <td>@GetValue(row, "InvalidRowCount")</td>
+                                    <td>@GetValue(row, "UploadedBy")</td>
+                                    <td>@GetValue(row, "UploadedOn")</td>
+                                    <td>
+                                        @if (invalidCount > 0)
+                                        {
+                                            <button type="button" class="btn btn-sm" data-errors="@inflowId">Errors</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@functions {
+    private static string GetValue(DataRow row, string column)
+    {
+        var col = row.Table.Columns.Cast<DataColumn>()
+            .FirstOrDefault(c => string.Equals(c.ColumnName, column, StringComparison.OrdinalIgnoreCase));
+        if (col == null || row[col] == DBNull.Value) return string.Empty;
+        return Convert.ToString(row[col]) ?? string.Empty;
+    }
+
+    private static bool IsTrue(DataRow row, string column)
+    {
+        var col = row.Table.Columns.Cast<DataColumn>()
+            .FirstOrDefault(c => string.Equals(c.ColumnName, column, StringComparison.OrdinalIgnoreCase));
+        return col != null && row[col] != DBNull.Value && Convert.ToBoolean(row[col]);
+    }
+
+    private static int ToInt(DataRow row, string column)
+    {
+        var text = GetValue(row, column);
+        return int.TryParse(text, out var value) ? value : 0;
+    }
+}
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+    (function ($) {
+        'use strict';
+
+        $('#useCaseId').on('change', function () {
+            var id = $(this).val() || '0';
+            window.location.href = '@Url.Action("Index", "Inflow")?useCaseId=' + encodeURIComponent(id);
+        });
+
+        $('#chooseFile').on('click', function () {
+            $('#fileInput').trigger('click');
+        });
+
+        $('#fileInput').on('change', function () {
+            if (this.files && this.files.length > 0) {
+                uploadFile(this.files[0]);
+            }
+            $(this).val('');
+        });
+
+        $('#dropZone').on('dragover', function (e) {
+            e.preventDefault();
+        }).on('drop', function (e) {
+            e.preventDefault();
+            var files = e.originalEvent.dataTransfer.files;
+            if (files && files.length > 0) {
+                uploadFile(files[0]);
+            }
+        });
+
+        function uploadFile(file) {
+            if (!/\.xlsx$/i.test(file.name)) {
+                APS.toast('Only .xlsx files are allowed.', 'error');
+                return;
+            }
+
+            var data = new FormData();
+            data.append('file', file);
+            data.append('useCaseId', '@selectedUseCaseId');
+
+            APS.postFile('@Url.Action("Upload", "Inflow")', data).then(function (response) {
+                if (!response || !response.success) {
+                    var msg = response && response.message ? response.message : 'Upload failed.';
+                    APS.toast(msg, 'error');
+                    setMessage(msg);
+                    return;
+                }
+
+                var message = response.message || 'Uploaded.';
+                if (response.data && response.data.ignoredExtraColumns && response.data.ignoredExtraColumns.length) {
+                    message += ' Ignored columns: ' + response.data.ignoredExtraColumns.join(', ');
+                }
+
+                APS.toast(message, 'success');
+                setMessage(message);
+                window.setTimeout(function () { window.location.reload(); }, 800);
+            });
+        }
+
+        $(document).on('click', '[data-errors]', function () {
+            var inflowId = $(this).data('errors');
+            APS.post('@Url.Action("BatchDetail", "Inflow")', { inflowId: inflowId }).then(function (response) {
+                if (!response || !response.success) {
+                    APS.toast(response && response.message ? response.message : 'Unable to load errors.', 'error');
+                    return;
+                }
+
+                var rows = response.data && response.data.rejectedRows ? response.data.rejectedRows : [];
+                if (!rows.length) {
+                    APS.toast('No rejected rows found.', 'info');
+                    return;
+                }
+
+                var html = '<div class="table-wrap"><table><thead><tr><th>Row</th><th>Reason</th></tr></thead><tbody>';
+                for (var i = 0; i < rows.length; i++) {
+                    var row = rows[i];
+                    var rowNo = APS.escapeHtml(String(row.RowNumber || row.rownumber || ''));
+                    var reason = APS.escapeHtml(String(row.ValidationMessage || row.validationmessage || ''));
+                    html += '<tr><td>' + rowNo + '</td><td>' + reason + '</td></tr>';
+                }
+                html += '</tbody></table></div>';
+                APS.openModal('Batch errors', html);
+            });
+        });
+
+        function setMessage(text) {
+            $('#uploadMessage').text(text || '').show();
+        }
+    })(jQuery);
+</script>
+}

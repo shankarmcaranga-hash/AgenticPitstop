@@ -1,0 +1,1519 @@
+@using System.Data
+@using System.Text.Json
+@using D = AgenticPitstop.Infrastructure.ApiConfigDataAccess
+@using AgenticPitstop.Infrastructure
+@{
+    ViewBag.Title = "API Configurator";
+
+    var tab = (string)ViewBag.Tab ?? "dashboard";
+    var simulatorEnabled = ViewBag.SimulatorEnabled == true;
+
+    ViewData["PageTitle"] = "API Configurator";
+    ViewData["PageSubtitle"] = "Configuration health, approval load and recent execution activity.";
+    ViewData["PageBreadcrumb"] = "Work / API Configurator";
+
+    string Tab(string key, string label, string icon)
+    {
+        var active = string.Equals(tab, key, StringComparison.OrdinalIgnoreCase) ? " active" : string.Empty;
+        return "<a class=\"apiconfig-tab" + active + "\" href=\"" + Url.Action("Index", new { tab = key }) + "\">"
+             + "<i class=\"fa-solid " + icon + "\"></i><span>" + label + "</span></a>";
+    }
+
+    string BadgeFor(string value)
+    {
+        var v = (value ?? string.Empty).ToLowerInvariant();
+        if (v.Contains("succeed") || v.Contains("published") || v.Contains("approved") || v == "passed") return "badge-success";
+        if (v.Contains("reject") || v.Contains("fail") || v.Contains("invalidated") || v.Contains("error")) return "badge-danger";
+        if (v.Contains("pending") || v.Contains("unknown") || v.Contains("warning") || v.Contains("await")) return "badge-warning";
+        return "badge-neutral";
+    }
+}
+
+<link rel="stylesheet" href="~/css/apiconfig.css" asp-append-version="true" />
+
+@await Html.PartialAsync("_PageHeader")
+
+@if (TempData["ApiConfigSuccess"] != null)
+{
+    <div class="apiconfig-alert ok"><i class="fa-solid fa-circle-check"></i><span>@TempData["ApiConfigSuccess"]</span></div>
+}
+@if (TempData["ApiConfigWarning"] != null)
+{
+    <div class="apiconfig-alert warn"><i class="fa-solid fa-triangle-exclamation"></i><span>@TempData["ApiConfigWarning"]</span></div>
+}
+@if (TempData["ApiConfigError"] != null)
+{
+    <div class="apiconfig-alert err"><i class="fa-solid fa-circle-exclamation"></i><span>@TempData["ApiConfigError"]</span></div>
+}
+
+<nav class="apiconfig-tabs" aria-label="API Configurator sections">
+    @Html.Raw(Tab("dashboard", "Dashboard", "fa-chart-line"))
+    @Html.Raw(Tab("catalog", "Connector Catalog", "fa-layer-group"))
+    @Html.Raw(Tab("configure", "Configure Connector", "fa-gear"))
+    @if (simulatorEnabled)
+    {
+        @Html.Raw(Tab("simulator", "End-to-End Simulator", "fa-flask"))
+    }
+    @Html.Raw(Tab("approvals", "Approval Inbox", "fa-inbox"))
+    @Html.Raw(Tab("audit", "Execution Audit", "fa-clock-rotate-left"))
+    @Html.Raw(Tab("runtime", "Runtime Abstractions", "fa-server"))
+</nav>
+
+@* ==========================================================================
+   DASHBOARD
+   ========================================================================== *@
+@if (tab == "dashboard")
+{
+    var metrics = ViewBag.Metrics as DataRow;
+    var available = ViewBag.MetricsAvailable == true;
+    var recent = ViewBag.Recent as DataTable ?? new DataTable();
+
+    if (!available)
+    {
+        <div class="apiconfig-alert err">
+            <i class="fa-solid fa-circle-exclamation"></i>
+            <span>Dashboard metrics could not be loaded. @ViewBag.MetricsError</span>
+        </div>
+    }
+
+    <div class="grid grid-4" style="margin-bottom:16px">
+        <div class="card kpi-card">
+            <span class="kpi-label">Published connectors</span>
+            <span class="kpi-value">@(available ? D.Int(metrics, "PublishedConnectors").ToString() : "Unavailable")</span>
+            <div class="kpi-trend">Active connectors with an immutable published version</div>
+        </div>
+        <div class="card kpi-card">
+            <span class="kpi-label">Draft connectors</span>
+            <span class="kpi-value">@(available ? D.Int(metrics, "DraftConnectors").ToString() : "Unavailable")</span>
+            <div class="kpi-trend">Editable versions not yet frozen</div>
+        </div>
+        <div class="card kpi-card">
+            <span class="kpi-label">Pending approvals</span>
+            <span class="kpi-value">@(available ? D.Int(metrics, "PendingApprovals").ToString() : "Unavailable")</span>
+            <div class="kpi-trend">Waiting for a human decision</div>
+        </div>
+        <div class="card kpi-card">
+            <span class="kpi-label">Successful executions</span>
+            <span class="kpi-value">@(available ? D.Int(metrics, "SuccessfulExecutions").ToString() : "Unavailable")</span>
+            <div class="kpi-trend">Last 30 days</div>
+        </div>
+    </div>
+
+    
+
+    <div class="card" style="margin-top:16px">
+        <div class="card-body">
+            <h3 class="card-title">Recent executions</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Created</th><th>Connector</th><th>Version</th><th>Mode</th><th>Status</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                    @if (recent.Rows.Count == 0)
+                    {
+                        <tr><td colspan="6">No executions have been created yet.</td></tr>
+                    }
+                    else
+                    {
+                        foreach (DataRow row in recent.Rows)
+                        {
+                            <tr>
+                                <td>@D.Date(row, "CreatedOn")?.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>@D.Str(row, "ConnectorName")</td>
+                                <td>v@(D.Int(row, "VersionNumber"))</td>
+                                <td>@D.Str(row, "ExecutionMode")</td>
+                                <td><span class="badge @BadgeFor(D.Str(row, "Status"))">@D.Str(row, "Status")</span></td>
+                                <td>
+                                    <a class="btn btn-sm" href="@Url.Action("Index", new { tab = "audit", id = D.Int(row, "ExecutionId") })">Open</a>
+                                </td>
+                            </tr>
+                        }
+                    }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@* ==========================================================================
+   CONNECTOR CATALOG
+   ========================================================================== *@
+@if (tab == "catalog")
+{
+    var connectors = ViewBag.Connectors as DataTable ?? new DataTable();
+
+    <div class="card">
+        <div class="card-body">
+           <form class="toolbar ea-toolbar" method="get" asp-action="Index">
+                    <input type="hidden" name="tab" value="audit" />
+                    <div class="toolbar-left ea-filters">
+                    <input type="search" name="search" value="@ViewBag.Search" placeholder="Connector, code, operation or customer" />
+                    <select name="status" onchange="this.form.submit()">
+                        <option value="">All statuses</option>
+                        <option value="Draft" selected="@("Draft".Equals(ViewBag.Status as string) ? "selected" : null)">Draft</option>
+                        <option value="Published" selected="@("Published".Equals(ViewBag.Status as string) ? "selected" : null)">Published</option>
+                    </select>
+                    <button class="btn btn-sm" type="submit"><i class="fa-solid fa-magnifying-glass"></i>Search</button>
+                </div>
+                <div class="toolbar-right">
+                    <a class="btn" href="@Url.Action("Index", new { tab = "catalog" })"><i class="fa-solid fa-filter-circle-xmark"></i>Clear</a>
+                    <a class="btn btn-primary" href="@Url.Action("Index", new { tab = "configure" })"><i class="fa-solid fa-plus"></i>New connector</a>
+                </div>
+            </form>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Connector</th><th>Customer</th><th>Application</th><th>Operation</th>
+                            <th>Protocol</th><th>Auth</th><th>Version</th><th>Status</th><th>Config hash</th><th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @if (connectors.Rows.Count == 0)
+                    {
+                        <tr><td colspan="10">No connector versions match this filter.</td></tr>
+                    }
+                    else
+                    {
+                        foreach (DataRow row in connectors.Rows)
+                        {
+                            var status = D.Str(row, "Status");
+                            var versionId = D.Int(row, "ConnectorVersionId");
+                            var connectorId = D.Int(row, "ConnectorId");
+                            var enabled = D.Bool(row, "Enabled");
+                            <tr>
+                                <td>
+                                    <strong>@D.Str(row, "ConnectorName")</strong>
+                                    <div class="apiconfig-muted">@D.Str(row, "ConnectorCode")</div>
+                                    @if (!enabled)
+                                    {
+                                        <span class="badge badge-danger">Inactive</span>
+                                    }
+                                </td>
+                                <td>@D.Str(row, "CustomerName")</td>
+                                <td>@D.Str(row, "ApplicationName")</td>
+                                <td>@D.Str(row, "OperationCode")</td>
+                                <td>@D.Str(row, "Protocol")</td>
+                                <td>@D.Str(row, "AuthType")</td>
+                                <td>v@(D.Int(row, "VersionNumber"))</td>
+                                <td><span class="badge @BadgeFor(status)">@status</span></td>
+                                <td class="apiconfig-mono">@D.ShortHash(D.Str(row, "ConfigHash"))</td>
+                                <td>
+                                    <div class="apiconfig-row-actions">
+                                        @if (status == "Draft")
+                                        {
+                                            <a class="btn btn-sm btn-primary" href="@Url.Action("Index", new { tab = "configure", id = versionId })">Edit draft</a>
+                                        }
+                                        else
+                                        {
+                                            <a class="btn btn-sm" href="@Url.Action("Index", new { tab = "configure", id = versionId })">View</a>
+                                            <form method="post" asp-action="Clone" asp-route-id="@versionId" style="display:inline">
+                                                @Html.AntiForgeryToken()
+                                                <button class="btn btn-sm" type="submit">Clone</button>
+                                            </form>
+                                        }
+                                        <form method="post" asp-action="SetActive" asp-route-id="@connectorId"
+                                              asp-route-enabled="@(!enabled)" style="display:inline">
+                                            @Html.AntiForgeryToken()
+                                            <button class="btn btn-sm" type="submit"
+                                                    data-confirm="@(enabled ? "Deactivate this connector? No new executions can be created." : "Reactivate this connector?")">
+                                                @(enabled ? "Deactivate" : "Activate")
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@* ==========================================================================
+   CONFIGURE CONNECTOR - the six-step wizard
+   ========================================================================== *@
+@if (tab == "configure")
+{
+    var version = ViewBag.Version as DataRow;
+    var auth = ViewBag.Auth as DataRow;
+    var headers = ViewBag.Headers as DataTable ?? new DataTable();
+    var queryParams = ViewBag.QueryParams as DataTable ?? new DataTable();
+    var customers = ViewBag.Customers as DataTable ?? new DataTable();
+    var applications = ViewBag.Applications as DataTable ?? new DataTable();
+    var providers = ViewBag.Providers as DataTable ?? new DataTable();
+    var checkRuns = ViewBag.CheckRuns as DataTable ?? new DataTable();
+
+    var readOnly = ViewBag.ReadOnly == true;
+    var isNew = version == null;
+    var versionId = D.Int(version, "ConnectorVersionId");
+    var status = D.Str(version, "Status");
+    var authType = auth == null ? "None" : D.Str(auth, "AuthType");
+    var disabled = readOnly ? "disabled" : null;
+    var startStep = (int)(ViewBag.Step ?? 1);
+
+    List<Dictionary<string, string>> checkResults = null;
+    var checkJson = ViewBag.CheckResults as string;
+    if (!string.IsNullOrWhiteSpace(checkJson))
+    {
+        try { checkResults = JsonSerializer.Deserialize<List<Dictionary<string, string>>>(checkJson); }
+        catch (JsonException) { checkResults = null; }
+    }
+
+    if (readOnly)
+    {
+        <div class="apiconfig-alert warn">
+            <i class="fa-solid fa-lock"></i>
+            <span>This version is published and immutable. Its snapshot and config hash are frozen. Clone it from the catalog to create a new editable draft.</span>
+        </div>
+    }
+
+    <form method="post" id="wizardForm" asp-action="SaveDraft">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="cfgVersionId" value="@(isNew ? "" : versionId.ToString())" />
+        <input type="hidden" name="cfgRowVersion" value="@D.Str(version, "RowVersionHex")" />
+        <input type="hidden" name="cfgCurrentStep" id="cfgCurrentStep" value="@startStep" />
+
+        <div class="apiconfig-wizard">
+            <div class="apiconfig-steps" id="wizardSteps">
+                <div class="cc-progress" aria-hidden="true">
+                    <span id="wizardProgress" style="width:@(startStep * 100 / 6)%"></span>
+                </div>
+                <div class="apiconfig-step active" data-step="1"><span class="num">1</span><span><strong>Identity &amp; scope</strong><small>Customer, application, operation</small></span></div>
+                <div class="apiconfig-step" data-step="2"><span class="num">2</span><span><strong>Endpoint &amp; routing</strong><small>Method, URL, headers, allowlist</small></span></div>
+                <div class="apiconfig-step" data-step="3"><span class="num">3</span><span><strong>Authentication</strong><small>Secret references only</small></span></div>
+                <div class="apiconfig-step" data-step="4"><span class="num">4</span><span><strong>Request mapping</strong><small>Payload template and preview</small></span></div>
+                <div class="apiconfig-step" data-step="5"><span class="num">5</span><span><strong>Response &amp; policies</strong><small>Success codes, retry, timeout</small></span></div>
+                <div class="apiconfig-step" data-step="6"><span class="num">6</span><span><strong>Test &amp; publish</strong><small>Validate, test, freeze version</small></span></div>
+            </div>
+
+            <div class="card apiconfig-wizard-body">
+                <div class="card-body">
+
+                    @* ---------------- STEP 1 ---------------- *@
+                    <section class="apiconfig-pane active" data-pane="1">
+                        <h3 class="card-title">Step 1 &ndash; Identity &amp; scope</h3>
+                        <p class="card-subtitle">The customer and application come from controlled master data, never free text.</p>
+
+                        <div class="apiconfig-grid">
+                            <div class="apiconfig-field">
+                                <label for="cfgCustomer">Customer / account</label>
+                                <select name="cfgCustomer" id="cfgCustomer" required @disabled>
+                                    <option value="">Select a customer</option>
+                                    @foreach (DataRow row in customers.Rows)
+                                    {
+                                        var cid = D.Int(row, "CustomerId");
+                                        <option value="@cid" selected="@(cid == D.Int(version, "CustomerId") && !isNew ? "selected" : null)">@D.Str(row, "CustomerName")</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="apiconfig-field">
+                                <label for="cfgApplication">Target application</label>
+                                <select name="cfgApplication" id="cfgApplication" required @disabled>
+                                    <option value="">Select an application</option>
+                                    @foreach (DataRow row in applications.Rows)
+                                    {
+                                        var aid = D.Int(row, "ApplicationId");
+                                        <option value="@aid" data-customer="@D.Int(row, "CustomerId")"
+                                                selected="@(aid == D.Int(version, "ApplicationId") && !isNew ? "selected" : null)">@D.Str(row, "ApplicationName")</option>
+                                    }
+                                </select>
+                                <small>Filtered by the selected customer. The server rejects a mismatched pair.</small>
+                            </div>
+                            <div class="apiconfig-field">
+                                <label for="cfgName">Connector name</label>
+                                <input name="cfgName" id="cfgName" maxlength="200" required value="@D.Str(version, "ConnectorName")" placeholder="Correspondence List - Get" @disabled />
+                            </div>
+                            <div class="apiconfig-field">
+                                <label for="cfgCode">Connector code</label>
+                                <input name="cfgCode" id="cfgCode" maxlength="100" required value="@D.Str(version, "ConnectorCode")" placeholder="GET_CORRESPONDENCE_LIST_API" @disabled />
+                                <small>Stable logical code, unique per customer.</small>
+                            </div>
+                            <div class="apiconfig-field">
+                                <label for="cfgOperation">Operation code</label>
+                                <input name="cfgOperation" id="cfgOperation" maxlength="100" required value="@D.Str(version, "OperationCode")" placeholder="GET_CORRESPONDENCE_LIST" @disabled />
+                                <small>Uppercase letters, digits and underscore only.</small>
+                            </div>
+                            <div class="apiconfig-field">
+                                <label for="cfgProtocol">Protocol</label>
+                                <select name="cfgProtocol" id="cfgProtocol" @disabled>
+                                    @foreach (var p in new[] { "REST", "SOAP", "GraphQL" })
+                                    {
+                                        <option value="@p" selected="@(p == D.Str(version, "Protocol") ? "selected" : null)">@(p == "REST" ? p : p + " (no executor yet)")</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="apiconfig-field apiconfig-span">
+                                <label for="cfgMode">Execution mode allowed</label>
+                                <select name="cfgMode" id="cfgMode" @disabled>
+                                    <option value="Both" selected="@("Both" == D.Str(version, "ExecutionModeAllowed") ? "selected" : null)">Both</option>
+                                    <option value="AttendedOnly" selected="@("AttendedOnly" == D.Str(version, "ExecutionModeAllowed") ? "selected" : null)">Attended only</option>
+                                    <option value="UnattendedOnly" selected="@("UnattendedOnly" == D.Str(version, "ExecutionModeAllowed") ? "selected" : null)">Unattended after approval only</option>
+                                </select>
+                                <small>Both modes still require a human approval before anything is sent.</small>
+                            </div>
+                        </div>
+                    </section>
+
+                    @* ---------------- STEP 2 ---------------- *@
+                    <section class="apiconfig-pane" data-pane="2">
+                        <h3 class="card-title">Step 2 &ndash; Endpoint &amp; request routing</h3>
+                        <p class="card-subtitle">The destination always comes from this configuration, never from transaction data.</p>
+
+                        <div class="apiconfig-grid three">
+                            <div class="apiconfig-field">
+                                <label for="cfgMethod">HTTP method</label>
+                                <select name="cfgMethod" id="cfgMethod" @disabled>
+                                    @foreach (var m in new[] { "POST", "PUT", "PATCH", "GET", "DELETE" })
+                                    {
+                                        <option value="@m" selected="@(m == D.Str(version, "HttpMethod") ? "selected" : null)">@m</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="apiconfig-field">
+                                <label for="cfgBaseAlias">Base URL alias</label>
+                                <input name="cfgBaseAlias" id="cfgBaseAlias" value="@D.Str(version, "BaseUrlAlias")" placeholder="cwa-gidp-qa" @disabled />
+                            </div>
+                            <div class="apiconfig-field">
+                                <label for="cfgBaseUrl">Base URL</label>
+                                <input name="cfgBaseUrl" id="cfgBaseUrl" value="@D.Str(version, "BaseUrl")" placeholder="https://host.example.com" @disabled />
+                                <small>Scheme and host only. Any path belongs in the endpoint template.</small>
+                            </div>
+                            <div class="apiconfig-field apiconfig-span3">
+                                <label for="cfgEndpoint">Relative endpoint template</label>
+                                <input name="cfgEndpoint" id="cfgEndpoint" value="@D.Str(version, "EndpointTemplate")" placeholder="/api/v1/resource/{{Placeholder}}" @disabled />
+                                <small>Must start with a forward slash. A scheme or host here is rejected.</small>
+                            </div>
+                            <div class="apiconfig-field apiconfig-span3">
+                                <label for="cfgAllowlist">Approved host allowlist</label>
+                                <textarea name="cfgAllowlist" id="cfgAllowlist" rows="3" placeholder="host.example.com:443" @disabled>@ViewBag.AllowlistText</textarea>
+                                <small>One host per line, optionally host:port. The base URL host must appear here before publishing.</small>
+                            </div>
+                        </div>
+
+                        <h4 class="apiconfig-subhead">Headers</h4>
+                        <p class="apiconfig-muted">Credential values are rejected here. Use a secret reference in step 3.</p>
+                        <div id="headerRows">
+                            @foreach (DataRow row in headers.Rows)
+                            {
+                                <div class="apiconfig-kv">
+                                    <input name="headerName" value="@D.Str(row, "HeaderName")" placeholder="Header name" @disabled />
+                                    <input name="headerValue" value="@D.Str(row, "HeaderValueTemplate")" placeholder="Value or {{Placeholder}}" @disabled />
+                                    <button type="button" class="btn btn-sm apiconfig-remove" @disabled>Remove</button>
+                                </div>
+                            }
+                        </div>
+                        @if (!readOnly)
+                        {
+                            <button type="button" class="btn btn-sm" id="addHeader"><i class="fa-solid fa-plus"></i>Add header</button>
+                        }
+
+                        <h4 class="apiconfig-subhead">Query parameters</h4>
+                        <div id="queryRows">
+                            @foreach (DataRow row in queryParams.Rows)
+                            {
+                                <div class="apiconfig-kv">
+                                    <input name="queryName" value="@D.Str(row, "ParameterName")" placeholder="Parameter name" @disabled />
+                                    <input name="queryValue" value="@D.Str(row, "ParameterValueTemplate")" placeholder="Value or {{Placeholder}}" @disabled />
+                                    <button type="button" class="btn btn-sm apiconfig-remove" @disabled>Remove</button>
+                                </div>
+                            }
+                        </div>
+                        @if (!readOnly)
+                        {
+                            <button type="button" class="btn btn-sm" id="addQuery"><i class="fa-solid fa-plus"></i>Add parameter</button>
+                        }
+                    </section>
+
+                    @* ---------------- STEP 3 ---------------- *@
+                    <section class="apiconfig-pane" data-pane="3">
+                        <h3 class="card-title">Step 3 &ndash; Authentication &amp; secret provider</h3>
+                        <p class="card-subtitle">SQL stores references only. A credential value is fetched immediately before a send and never reaches this page.</p>
+
+                        <div class="apiconfig-grid">
+                            <div class="apiconfig-field">
+                                <label for="cfgAuth">Authentication type</label>
+                                <select name="cfgAuth" id="cfgAuth" @disabled>
+                                    @foreach (var t in new[] { "None", "OAuth2ClientCredentials", "ApiKey", "BearerToken", "Basic", "ClientCertificate", "WorkloadIdentity", "CustomPlugin" })
+                                    {
+                                        <option value="@t" selected="@(t == authType ? "selected" : null)">@t</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="apiconfig-field">
+                                <label for="cfgSecretProvider">Secret store alias</label>
+                                <select name="cfgSecretProvider" id="cfgSecretProvider" @disabled>
+                                    <option value="">None</option>
+                                    @foreach (DataRow row in providers.Rows)
+                                    {
+                                        if (D.Str(row, "ProviderCategory") != "SecretProvider") { continue; }
+                                        var alias = D.Str(row, "ProviderAlias");
+                                        <option value="@alias" selected="@(alias == D.Str(auth, "SecretStoreAlias") ? "selected" : null)">@alias (@D.Str(row, "AdapterType"))</option>
+                                    }
+                                </select>
+                                <small>A logical alias, so the deployment can change provider without editing every connector.</small>
+                            </div>
+                        </div>
+
+                        <div class="apiconfig-grid apiconfig-auth" data-auth="OAuth2ClientCredentials">
+                            <div class="apiconfig-field"><label>Client ID secret ref</label><input name="cfgClientIdRef" value="@D.Str(auth, "ClientIdSecretRef")" placeholder="secret://scope/name" @disabled /></div>
+                            <div class="apiconfig-field"><label>Client secret ref</label><input name="cfgClientSecretRef" value="@D.Str(auth, "ClientSecretSecretRef")" placeholder="secret://scope/name" @disabled /></div>
+                            <div class="apiconfig-field"><label>Token endpoint</label><input name="cfgTokenEndpoint" value="@D.Str(auth, "TokenEndpoint")" @disabled /></div>
+                            <div class="apiconfig-field"><label>Scope</label><input name="cfgScope" value="@D.Str(auth, "Scope")" @disabled /></div>
+                            <div class="apiconfig-field"><label>Audience</label><input name="cfgAudience" value="@D.Str(auth, "Audience")" @disabled /></div>
+                        </div>
+
+                        <div class="apiconfig-grid apiconfig-auth" data-auth="ApiKey">
+                            <div class="apiconfig-field"><label>API key name</label><input name="cfgApiKeyName" value="@D.Str(auth, "ApiKeyName")" placeholder="X-Api-Key" @disabled /></div>
+                            <div class="apiconfig-field">
+                                <label>API key location</label>
+                                <select name="cfgApiKeyLocation" @disabled>
+                                    <option value="Header" selected="@("Header" == D.Str(auth, "ApiKeyLocation") ? "selected" : null)">Header (preferred)</option>
+                                    <option value="Query" selected="@("Query" == D.Str(auth, "ApiKeyLocation") ? "selected" : null)">Query</option>
+                                </select>
+                            </div>
+                            <div class="apiconfig-field apiconfig-span"><label>API key secret ref</label><input name="cfgApiKeyRef" value="@D.Str(auth, "ApiKeySecretRef")" placeholder="secret://scope/name" @disabled /></div>
+                        </div>
+
+                        <div class="apiconfig-grid apiconfig-auth" data-auth="BearerToken">
+                            <div class="apiconfig-field apiconfig-span"><label>Bearer token secret ref</label><input name="cfgBearerRef" value="@D.Str(auth, "BearerTokenSecretRef")" @disabled /></div>
+                        </div>
+
+                        <div class="apiconfig-grid apiconfig-auth" data-auth="Basic">
+                            <div class="apiconfig-field"><label>Username secret ref</label><input name="cfgUsernameRef" value="@D.Str(auth, "UsernameSecretRef")" @disabled /></div>
+                            <div class="apiconfig-field"><label>Password secret ref</label><input name="cfgPasswordRef" value="@D.Str(auth, "PasswordSecretRef")" @disabled /></div>
+                        </div>
+
+                        <div class="apiconfig-grid apiconfig-auth" data-auth="ClientCertificate">
+                            <div class="apiconfig-field apiconfig-span"><label>Certificate secret ref</label><input name="cfgCertificateRef" value="@D.Str(auth, "CertificateSecretRef")" @disabled /></div>
+                        </div>
+
+                        <div class="apiconfig-grid apiconfig-auth" data-auth="CustomPlugin">
+                            <div class="apiconfig-field apiconfig-span"><label>Custom plugin key</label><input name="cfgPluginKey" value="@D.Str(auth, "CustomPluginKey")" @disabled /></div>
+                        </div>
+
+                        <div class="apiconfig-alert warn" style="margin-top:14px">
+                            <i class="fa-solid fa-shield-halved"></i>
+                            <span>A literal key, token or password pasted into any field above is rejected by server-side validation. Store the value in the secret manager and reference it here.</span>
+                        </div>
+                    </section>
+
+                    @* ---------------- STEP 4 ---------------- *@
+                    <section class="apiconfig-pane" data-pane="4">
+                        <h3 class="card-title">Step 4 &ndash; Request mapping &amp; payload template</h3>
+                        <p class="card-subtitle">Placeholders are dotted property paths only. No expressions, no code, no template engine.</p>
+
+                        <div class="apiconfig-grid">
+                            <div class="apiconfig-field">
+                                <label for="cfgSourceJson">Sample source data (JSON)</label>
+                                <textarea name="cfgSourceJson" id="cfgSourceJson" rows="14" @disabled>@D.Str(version, "SampleSourceJson")</textarea>
+                                <small>Test data only. It is never confused with a real execution transaction.</small>
+                            </div>
+                            <div class="apiconfig-field">
+                                <label for="cfgPayloadTemplate">Payload template (JSON)</label>
+                                <textarea name="cfgPayloadTemplate" id="cfgPayloadTemplate" rows="14" @disabled>@D.Str(version, "PayloadTemplateJson")</textarea>
+                                <small>Use {{AccountId}}, {{Customer.Address.Zip}} or {{System.ExecutionId}}.</small>
+                            </div>
+                        </div>
+
+                        <div class="apiconfig-row-actions" style="margin:12px 0">
+                            <button type="button" class="btn btn-primary" id="previewPayloadBtn"><i class="fa-solid fa-wand-magic-sparkles"></i>Resolve preview</button>
+                            <span class="apiconfig-muted">Server-side resolution. No target call, no database write.</span>
+                        </div>
+
+                        <label>Resolved payload preview</label>
+                        <pre class="apiconfig-code" id="payloadPreview">Run Resolve preview to see the resolved payload.</pre>
+                    </section>
+
+                    @* ---------------- STEP 5 ---------------- *@
+                    <section class="apiconfig-pane" data-pane="5">
+                        <h3 class="card-title">Step 5 &ndash; Response handling &amp; policies</h3>
+                        <p class="card-subtitle">These policies bound what the deterministic executor is permitted to do.</p>
+
+                        <div class="apiconfig-grid three">
+                            <div class="apiconfig-field">
+                                <label for="cfgSuccessCodes">Success status codes</label>
+                                <input name="cfgSuccessCodes" id="cfgSuccessCodes" value="@ViewBag.SuccessCodesCsv" placeholder="200,201,202" @disabled />
+                            </div>
+                            <div class="apiconfig-field">
+                                <label for="cfgTimeout">Timeout (seconds)</label>
+                                <input name="cfgTimeout" id="cfgTimeout" type="number" min="1" max="120" value="@D.Int(version, "TimeoutSeconds", 30)" @disabled />
+                            </div>
+                            <div class="apiconfig-field">
+                                <label for="cfgRetries">Maximum attempts</label>
+                                <input name="cfgRetries" id="cfgRetries" type="number" min="1" max="5" value="@D.Int(version, "MaxAttempts", 3)" @disabled />
+                            </div>
+                            <div class="apiconfig-field">
+                                <label for="cfgIdempotency">Idempotency header</label>
+                                <input name="cfgIdempotency" id="cfgIdempotency" value="@D.Str(version, "IdempotencyHeader")" placeholder="Idempotency-Key" @disabled />
+                                <small>When set, the executor sends the execution's external handle as the value.</small>
+                            </div>
+                            <div class="apiconfig-field">
+                                <label for="cfgCorrelation">Correlation header</label>
+                                <input name="cfgCorrelation" id="cfgCorrelation" value="@D.Str(version, "CorrelationHeader")" placeholder="X-Correlation-Id" @disabled />
+                            </div>
+                            <div class="apiconfig-field">
+                                <label for="cfgResponseType">Response type</label>
+                                <select name="cfgResponseType" id="cfgResponseType" @disabled>
+                                    @foreach (var t in new[] { "JSON", "XML", "Text", "Empty" })
+                                    {
+                                        <option value="@t" selected="@(t == D.Str(version, "ResponseType") ? "selected" : null)">@t</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="apiconfig-field apiconfig-span3">
+                                <label for="cfgResponseMapping">Business result mapping (JSON)</label>
+                                <textarea name="cfgResponseMapping" id="cfgResponseMapping" rows="4" @disabled>@D.Str(version, "ResultMappingJson")</textarea>
+                            </div>
+                            <div class="apiconfig-field apiconfig-span3">
+                                <label class="apiconfig-check">
+                                    <input type="checkbox" name="cfgRetrySafe" value="true" @(D.Bool(version, "IsRetrySafe") ? "checked" : null) @disabled />
+                                    <span>Retry safe &ndash; the target guarantees idempotency for this operation</span>
+                                </label>
+                                <small>Without this, a POST or PATCH is sent once only. An automatic retry of a non-idempotent posting operation can duplicate a financial transaction.</small>
+                            </div>
+                        </div>
+                    </section>
+
+                    @* ---------------- STEP 6 ---------------- *@
+                    <section class="apiconfig-pane" data-pane="6">
+                        <h3 class="card-title">Step 6 &ndash; Test &amp; publish</h3>
+                        <p class="card-subtitle">All three actions read the saved draft from SQL, so save your changes first. Publishing freezes a complete snapshot and its SHA-256 config hash.</p>
+
+                        @if (isNew)
+                        {
+                            <div class="apiconfig-alert warn">
+                                <i class="fa-solid fa-circle-info"></i>
+                                <span>Save the draft once before validating, testing or publishing.</span>
+                            </div>
+                        }
+                        else if (!readOnly)
+                        {
+                            <div class="apiconfig-row-actions" style="margin-bottom:14px">
+                                @* formnovalidate: these read the saved draft from SQL, not the form,
+                                   so browser validation of hidden panes must not block them. *@
+                                <button type="submit" class="btn" formnovalidate formaction="@Url.Action("Validate", new { id = versionId })">
+                                    <i class="fa-solid fa-list-check"></i>Validate configuration
+                                </button>
+                                <button type="submit" class="btn" formnovalidate formaction="@Url.Action("TestConnection", new { id = versionId })">
+                                    <i class="fa-solid fa-plug-circle-check"></i>Connection test
+                                </button>
+                                <button type="submit" class="btn btn-primary" formnovalidate formaction="@Url.Action("Publish", new { id = versionId })"
+                                        data-confirm="Publish this version? It becomes immutable and can only be changed by cloning.">
+                                    <i class="fa-solid fa-lock"></i>Publish new version
+                                </button>
+                            </div>
+                        }
+
+                        @if (checkResults is { Count: > 0 })
+                        {
+                            <div class="apiconfig-checks">
+                                <h4 class="apiconfig-subhead">@(ViewBag.CheckType == "ConnectionTest" ? "Connection test steps" : "Validation results")</h4>
+                                <p class="apiconfig-muted">Persisted as a check run against this version. Secret material is never recorded.</p>
+                                @foreach (var result in checkResults)
+                                {
+                                    var severity = result.TryGetValue("Severity", out var s) ? s : (result.TryGetValue("Status", out var st) ? st : "Info");
+                                    var field = result.TryGetValue("Field", out var f) ? f : (result.TryGetValue("Name", out var n) ? n : "");
+                                    var message = result.TryGetValue("Message", out var m) ? m : "";
+                                    <div class="apiconfig-check-row">
+                                        <span class="badge @BadgeFor(severity)">@severity</span>
+                                        <strong>@field</strong>
+                                        <span>@message</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        <div class="apiconfig-grid" style="margin-top:14px">
+                            <div class="apiconfig-field">
+                                <label>Final request preview</label>
+                                <pre class="apiconfig-code">@D.Str(version, "HttpMethod") @D.Str(version, "BaseUrl")@D.Str(version, "EndpointTemplate")
+Auth: @authType (references only)
+Timeout: @D.Int(version, "TimeoutSeconds", 30)s   Attempts: @D.Int(version, "MaxAttempts", 1)   Retry safe: @D.Bool(version, "IsRetrySafe")</pre>
+                            </div>
+                            <div class="apiconfig-field">
+                                <label>Version state</label>
+                                <dl class="apiconfig-dl">
+                                    <dt>Status</dt><dd><span class="badge @BadgeFor(status)">@(string.IsNullOrEmpty(status) ? "Unsaved" : status)</span></dd>
+                                    <dt>Version</dt><dd>@(isNew ? "-" : "v" + D.Int(version, "VersionNumber"))</dd>
+                                    <dt>Config hash</dt><dd class="apiconfig-mono">@(string.IsNullOrEmpty(D.Str(version, "ConfigHash")) ? "Not published" : D.Str(version, "ConfigHash"))</dd>
+                                    <dt>Published on</dt><dd>@(D.Date(version, "PublishedOn")?.ToString("yyyy-MM-dd HH:mm") ?? "-")</dd>
+                                    <dt>Published by</dt><dd>@(string.IsNullOrEmpty(D.Str(version, "PublishedBy")) ? "-" : D.Str(version, "PublishedBy"))</dd>
+                                </dl>
+                            </div>
+                        </div>
+
+                        @if (checkRuns.Rows.Count > 0)
+                        {
+                            <h4 class="apiconfig-subhead">Recent check runs</h4>
+                            <div class="table-wrap">
+                                <table>
+                                    <thead><tr><th>Type</th><th>Result</th><th>Started</th><th>Run by</th></tr></thead>
+                                    <tbody>
+                                    @foreach (DataRow row in checkRuns.Rows)
+                                    {
+                                        <tr>
+                                            <td>@D.Str(row, "RunType")</td>
+                                            <td><span class="badge @BadgeFor(D.Str(row, "ResultStatus"))">@D.Str(row, "ResultStatus")</span></td>
+                                            <td>@D.Date(row, "StartedOn")?.ToString("yyyy-MM-dd HH:mm")</td>
+                                            <td>@D.Str(row, "RunBy")</td>
+                                        </tr>
+                                    }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </section>
+
+                    <div class="apiconfig-wizard-footer">
+                        <button type="button" class="btn" id="wizardPrev"><i class="fa-solid fa-arrow-left"></i>Previous</button>
+                        <span id="wizardProgress" class="apiconfig-muted">Step 1 of 6</span>
+                        <span class="apiconfig-row-actions">
+                            @if (ViewBag.LoadSampleEnabled == true && !readOnly)
+                            {
+                                <button type="button" class="btn" id="loadSample">Load sample</button>
+                            }
+                            @if (!readOnly)
+                            {
+                                <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i>Save draft</button>
+                            }
+                            <button type="button" class="btn" id="wizardNext">Next<i class="fa-solid fa-arrow-right"></i></button>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+}
+
+@* ==========================================================================
+   END-TO-END SIMULATOR
+   ========================================================================== *@
+@if (tab == "simulator")
+{
+    var connectors = ViewBag.Connectors as DataTable ?? new DataTable();
+    var request = ViewBag.Request as DataRow;
+    var attempts = ViewBag.Attempts as DataTable ?? new DataTable();
+
+    <div class="apiconfig-alert warn sim-banner">
+        <i class="fa-solid fa-flask"></i>
+        <span>
+            <strong>Development tool.</strong>
+            This page is enabled by a feature flag and must stay off in production, where the Approval Inbox
+            and Execution Audit tabs replace it.
+        </span>
+    </div>
+
+    <ol class="sim-steps" aria-label="Simulation steps">
+        <li class="sim-step @(request == null ? "is-active" : "is-done")">
+            <span class="sim-step-dot">1</span>
+            <span><strong>Create review</strong><small>Freeze the target and payload</small></span>
+        </li>
+        <li class="sim-step @(request == null ? "" : "is-active")">
+            <span class="sim-step-dot">2</span>
+            <span><strong>Approve</strong><small>Check the exact package</small></span>
+        </li>
+        <li class="sim-step">
+            <span class="sim-step-dot">3</span>
+            <span><strong>Execute</strong><small>Controls re-checked, then sent</small></span>
+        </li>
+    </ol>
+
+    <div class="apiconfig-split">
+        <div class="card">
+            <div class="card-body">
+                <div class="sim-head">
+                    <span class="sim-head-icon"><i class="fa-solid fa-flask"></i></span>
+                    <div>
+                        <h3 class="card-title">Create a review</h3>
+                        <p class="card-subtitle">The endpoint and payload are resolved server-side with the same resolver production uses.</p>
+                    </div>
+                </div>
+
+                <form method="post" asp-action="CreateReview" class="sim-form">
+                    @Html.AntiForgeryToken()
+                    <div class="apiconfig-grid">
+                        <div class="apiconfig-field">
+                            <label for="simConnector">Published connector</label>
+                            <select name="simConnector" id="simConnector" required>
+                                <option value="">Select a connector</option>
+                                @foreach (DataRow row in connectors.Rows)
+                                {
+                                    <option value="@D.Int(row, "ConnectorVersionId")"
+                                            data-sample="@D.Str(row, "SampleSourceJson")"
+                                            data-mode="@D.Str(row, "ExecutionModeAllowed")">
+                                        @D.Str(row, "ConnectorName") (v@(D.Int(row, "VersionNumber"))) &ndash; @D.Str(row, "CustomerName")
+                                    </option>
+                                }
+                            </select>
+                        </div>
+                        <div class="apiconfig-field">
+                            <label for="simMode">Execution mode</label>
+                            <select name="simMode" id="simMode">
+                                <option value="Attended">Attended</option>
+                                <option value="UnattendedAfterApproval">Unattended after approval</option>
+                            </select>
+                        </div>
+                        <div class="apiconfig-field apiconfig-span">
+                            <label for="simBusinessKey">Business key</label>
+                            <input name="simBusinessKey" id="simBusinessKey" placeholder="Policy or claim reference" />
+                        </div>
+                        <div class="apiconfig-field apiconfig-span">
+                            <label for="simSource">Source data (JSON)</label>
+                            <textarea name="simSource" id="simSource" rows="12" required placeholder="{ }"></textarea>
+                            <small>Selecting a connector loads its saved sample data.</small>
+                        </div>
+                    </div>
+                    <div class="form-actions sim-actions">
+                        <span class="sim-hint"><i class="fa-solid fa-circle-info"></i>Nothing is sent until the review is approved.</span>
+                        <button class="btn btn-primary" type="submit"><i class="fa-solid fa-play"></i>Create review</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div>
+            @if (request == null)
+            {
+                <div class="card sim-idle">
+                    <div class="card-body">
+                        <span class="sim-idle-icon"><i class="fa-solid fa-diagram-project"></i></span>
+                        <strong>No active simulation</strong>
+                        <span>Create a review on the left to see the frozen package, the approval gate and the execution result here.</span>
+                        <ul class="sim-idle-list">
+                            <li><i class="fa-solid fa-lock"></i>The target and payload are frozen when the review is created.</li>
+                            <li><i class="fa-solid fa-fingerprint"></i>Approval covers a SHA-256 hash of that exact package.</li>
+                            <li><i class="fa-solid fa-shield-halved"></i>The host allowlist and hash are re-checked before sending.</li>
+                        </ul>
+                    </div>
+                </div>
+            }
+            else
+            {
+                var executionId = D.Int(request, "ExecutionId");
+                var approvalStatus = D.Str(request, "ApprovalStatus");
+
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="card-title">2. Frozen package</h3>
+                        <dl class="apiconfig-dl">
+                            <dt>Execution ID</dt><dd class="apiconfig-mono">@executionId</dd>
+                            <dt>External handle</dt><dd class="apiconfig-mono">@D.Str(request, "ExecutionUid")</dd>
+                            <dt>Status</dt><dd><span class="badge @BadgeFor(D.Str(request, "Status"))">@D.Str(request, "Status")</span></dd>
+                            <dt>Approval</dt><dd><span class="badge @BadgeFor(approvalStatus)">@approvalStatus</span></dd>
+                            <dt>Target</dt><dd class="apiconfig-mono">@D.Str(request, "ResolvedMethod") @D.Str(request, "ResolvedUrl")</dd>
+                            <dt>Payload hash</dt><dd class="apiconfig-mono">@D.ShortHash(D.Str(request, "PayloadHash"))</dd>
+                            <dt>Approval hash</dt><dd class="apiconfig-mono">@(string.IsNullOrEmpty(D.Str(request, "ApprovalHash")) ? "-" : D.ShortHash(D.Str(request, "ApprovalHash")))</dd>
+                        </dl>
+
+                        <pre class="apiconfig-code">@ViewBag.PrettyPayload</pre>
+
+                        <div class="apiconfig-row-actions" style="margin-top:12px">
+                            <a class="btn btn-primary" href="@Url.Action("Index", new { tab = "approvals", id = executionId })">Open in approval inbox</a>
+                            @if (approvalStatus == "Approved")
+                            {
+                                <form method="post" asp-action="Tamper" asp-route-id="@executionId" style="display:inline">
+                                    @Html.AntiForgeryToken()
+                                    <button class="btn" type="submit"
+                                            data-confirm="Alter the stored package after approval? The next execute attempt must be blocked.">
+                                        Simulate data change
+                                    </button>
+                                </form>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                @if (attempts.Rows.Count > 0)
+                {
+                    <div class="card" style="margin-top:16px">
+                        <div class="card-body">
+                            <h3 class="card-title">3. Execution timeline</h3>
+                            @foreach (DataRow row in attempts.Rows)
+                            {
+                                <div class="apiconfig-event">
+                                    <strong>Attempt @D.Int(row, "AttemptNumber") &ndash; @D.Str(row, "Outcome")</strong>
+                                    <span class="apiconfig-muted">
+                                        HTTP @(D.Int(row, "HttpStatusCode") == 0 ? "-" : D.Int(row, "HttpStatusCode").ToString())
+                                        &middot; @D.Int(row, "DurationMs")ms
+                                        &middot; @D.Date(row, "CompletedOn")?.ToString("HH:mm:ss")
+                                    </span>
+                                    <pre class="apiconfig-code">@D.Str(row, "ErrorMessage")@D.Str(row, "ResponseSnippet")</pre>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+}
+
+@* ==========================================================================
+   APPROVAL INBOX
+   ========================================================================== *@
+@if (tab == "approvals")
+{
+    var request = ViewBag.Request as DataRow;
+
+    if (request == null)
+    {
+        var pending = ViewBag.Pending as DataTable ?? new DataTable();
+
+        <div class="card">
+            <div class="card-body">
+                <h3 class="card-title">Approval inbox</h3>
+                <p class="card-subtitle">
+                    A one-line row is not enough to approve responsibly, so open each item and review the exact
+                    target and payload before deciding. The approver cannot edit posting data: if it is wrong,
+                    reject it and let the upstream process create a new review.
+                </p>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Created</th><th>Business key</th><th>Connector</th><th>Customer</th><th>Mode</th><th>Target</th><th>Payload hash</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                        @if (pending.Rows.Count == 0)
+                        {
+                            <tr><td colspan="8">Nothing is waiting for approval.</td></tr>
+                        }
+                        else
+                        {
+                            foreach (DataRow row in pending.Rows)
+                            {
+                                <tr>
+                                    <td>@D.Date(row, "CreatedOn")?.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td><strong>@D.Str(row, "BusinessKey")</strong></td>
+                                    <td>
+                                        @D.Str(row, "ConnectorName")
+                                        <div class="apiconfig-muted">v@(D.Int(row, "VersionNumber")) &middot; @D.Str(row, "OperationCode")</div>
+                                    </td>
+                                    <td>@D.Str(row, "CustomerName")</td>
+                                    <td>@D.Str(row, "ExecutionMode")</td>
+                                    <td class="apiconfig-mono">@D.Str(row, "ResolvedMethod") @D.Str(row, "ResolvedUrl")</td>
+                                    <td class="apiconfig-mono">@D.ShortHash(D.Str(row, "PayloadHash"))</td>
+                                    <td><a class="btn btn-sm btn-primary" href="@Url.Action("Index", new { tab = "approvals", id = D.Int(row, "ExecutionId") })">Review</a></td>
+                                </tr>
+                            }
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        var executionId = D.Int(request, "ExecutionId");
+        var status = D.Str(request, "Status");
+        var approvalStatus = D.Str(request, "ApprovalStatus");
+        var attempts = ViewBag.Attempts as DataTable ?? new DataTable();
+        var exceptions = ViewBag.Exceptions as DataTable ?? new DataTable();
+        bool? hashVerified = ViewBag.HashVerified;
+
+        <div class="apiconfig-row-actions" style="margin-bottom:12px">
+            <a class="btn" href="@Url.Action("Index", new { tab = "approvals" })"><i class="fa-solid fa-arrow-left"></i>Back to inbox</a>
+        </div>
+
+        if (hashVerified == false)
+        {
+            <div class="apiconfig-alert err">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <span>The stored package no longer matches its approval hash. Execution is blocked and this approval must be invalidated. A new review has to be created upstream.</span>
+            </div>
+        }
+
+        <div class="apiconfig-split">
+            <div>
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="card-title">Posting data</h3>
+                        <p class="card-subtitle">Exactly what will be sent. It cannot be edited on this screen.</p>
+                        <pre class="apiconfig-code">@ViewBag.PrettyPayload</pre>
+                    </div>
+                </div>
+
+                @if (attempts.Rows.Count > 0)
+                {
+                    <div class="card" style="margin-top:16px">
+                        <div class="card-body">
+                            <h3 class="card-title">Execution attempts</h3>
+                            <div class="table-wrap">
+                                <table class="apiconfig-attempts">
+                                    <thead><tr><th>#</th><th>Completed</th><th>Status</th><th>Outcome</th><th>Duration</th><th>Response</th></tr></thead>
+                                    <tbody>
+                                        @foreach (DataRow row in attempts.Rows)
+                                        {
+                                            var detail = D.Str(row, "ErrorMessage") + D.Str(row, "ResponseSnippet");
+                                            var attemptNo = D.Int(row, "AttemptNumber");
+                                            var failed = !string.Equals(D.Str(row, "Outcome"), "Succeeded", StringComparison.OrdinalIgnoreCase);
+                                            <tr>
+                                                <td>@attemptNo</td>
+                                                <td>@D.Date(row, "CompletedOn")?.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                                <td>@(D.Int(row, "HttpStatusCode") == 0 ? "-" : D.Int(row, "HttpStatusCode").ToString())</td>
+                                                <td><span class="badge @BadgeFor(D.Str(row, "Outcome"))">@D.Str(row, "Outcome")</span></td>
+                                                <td>@D.Int(row, "DurationMs")ms</td>
+                                                <td>
+                                                    @if (string.IsNullOrWhiteSpace(detail))
+                                                    {
+                                                        <span class="apiconfig-muted">No body returned</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="apiconfig-detail">
+                                                            <span class="apiconfig-peek @(failed ? "is-error" : "")">@(detail.Length > 90 ? detail.Substring(0, 90) + "…" : detail)</span>
+                                                            <button type="button" class="btn btn-sm" data-attempt="@attemptNo">
+                                                                <i class="fa-solid fa-code"></i>View
+                                                            </button>
+                                                            <script type="application/json" id="attemptBody@(attemptNo)">@detail</script>
+                                                        </div>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                @if (exceptions.Rows.Count > 0)
+                {
+                    <div class="card" style="margin-top:16px">
+                        <div class="card-body">
+                            <h3 class="card-title">Exception queue</h3>
+                            @foreach (DataRow row in exceptions.Rows)
+                            {
+                                <div class="apiconfig-alert err">
+                                    <i class="fa-solid fa-circle-exclamation"></i>
+                                    <span><strong>@D.Str(row, "Category")</strong> &ndash; @D.Str(row, "Reason")</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div>
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="card-title">Approval evidence</h3>
+                        <dl class="apiconfig-dl">
+                            <dt>Execution ID</dt><dd class="apiconfig-mono">@executionId</dd>
+                            <dt>External handle</dt><dd class="apiconfig-mono">@D.Str(request, "ExecutionUid")</dd>
+                            <dt>Business key</dt><dd>@D.Str(request, "BusinessKey")</dd>
+                            <dt>Customer</dt><dd>@D.Str(request, "CustomerName")</dd>
+                            <dt>Application</dt><dd>@D.Str(request, "ApplicationName")</dd>
+                            <dt>Connector</dt><dd>@D.Str(request, "ConnectorName")</dd>
+                            <dt>Operation</dt><dd class="apiconfig-mono">@D.Str(request, "OperationCode")</dd>
+                            <dt>Version</dt><dd>v@(D.Int(request, "VersionNumber"))</dd>
+                            <dt>Config hash</dt><dd class="apiconfig-mono">@D.ShortHash(D.Str(request, "ConfigHash"))</dd>
+                            <dt>Method</dt><dd>@D.Str(request, "ResolvedMethod")</dd>
+                            <dt>Target URL</dt><dd class="apiconfig-mono">@D.Str(request, "ResolvedUrl")</dd>
+                            <dt>Execution mode</dt><dd>@D.Str(request, "ExecutionMode")</dd>
+                            <dt>Request status</dt><dd><span class="badge @BadgeFor(status)">@status</span></dd>
+                            <dt>Approval status</dt><dd><span class="badge @BadgeFor(approvalStatus)">@approvalStatus</span></dd>
+                            <dt>Payload hash</dt><dd class="apiconfig-mono">@D.Str(request, "PayloadHash")</dd>
+                            <dt>Approval hash</dt><dd class="apiconfig-mono">@(string.IsNullOrEmpty(D.Str(request, "ApprovalHash")) ? "Not yet approved" : D.Str(request, "ApprovalHash"))</dd>
+                            <dt>Hash scheme</dt><dd>@D.Str(request, "HashScheme")</dd>
+                            <dt>Decided by</dt><dd>@(string.IsNullOrEmpty(D.Str(request, "DecidedBy")) ? "-" : D.Str(request, "DecidedBy"))</dd>
+                            <dt>Decided on</dt><dd>@(D.Date(request, "DecidedOn")?.ToString("yyyy-MM-dd HH:mm") ?? "-")</dd>
+                        </dl>
+                        <p class="apiconfig-muted">Credentials are never shown here. The connector resolves a secret reference at send time only.</p>
+                    </div>
+                </div>
+
+                @if (approvalStatus == "Pending")
+                {
+                    <div class="card" style="margin-top:16px">
+                        <div class="card-body">
+                            <h3 class="card-title">Decision</h3>
+                            <form method="post" asp-action="Approve" asp-route-id="@executionId">
+                                @Html.AntiForgeryToken()
+                                <div class="apiconfig-field">
+                                    <label for="comment">Comment (optional)</label>
+                                    <input name="comment" id="comment" placeholder="What did you check?" />
+                                </div>
+                                <div class="form-actions">
+                                    <button class="btn btn-primary" type="submit"
+                                            data-confirm="Approve this posting request? The package will be frozen for execution.">
+                                        <i class="fa-solid fa-check"></i>Approve
+                                    </button>
+                                    <button class="btn" type="submit" formaction="@Url.Action("Reject", new { id = executionId })"
+                                            data-confirm="Reject this posting request?">
+                                        <i class="fa-solid fa-xmark"></i>Reject
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                }
+                else if (status == "ApprovedAwaitingExecution")
+                {
+                    <div class="card" style="margin-top:16px">
+                        <div class="card-body">
+                            <h3 class="card-title">Attended execution</h3>
+                            <p class="card-subtitle">The worker will send the persisted approved package, not a freshly regenerated one.</p>
+                            <form method="post" asp-action="Execute" asp-route-id="@executionId">
+                                @Html.AntiForgeryToken()
+                                <button class="btn btn-primary" type="submit" data-confirm="Queue this approved package for execution?">
+                                    <i class="fa-solid fa-paper-plane"></i>Execute approved package
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="card" style="margin-top:16px">
+                        <div class="card-body">
+                            <h3 class="card-title">Decision recorded</h3>
+                            <p class="card-subtitle">@(string.IsNullOrEmpty(D.Str(request, "DecisionComment")) ? "No comment was left." : D.Str(request, "DecisionComment"))</p>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+}
+
+@* ==========================================================================
+   EXECUTION AUDIT
+   ========================================================================== *@
+@if (tab == "audit")
+{
+    var request = ViewBag.Request as DataRow;
+
+    if (request != null)
+    {
+        var attempts = ViewBag.Attempts as DataTable ?? new DataTable();
+        var exceptions = ViewBag.Exceptions as DataTable ?? new DataTable();
+
+        <div class="apiconfig-row-actions" style="margin-bottom:12px">
+            <a class="btn" href="@Url.Action("Index", new { tab = "audit" })"><i class="fa-solid fa-arrow-left"></i>Back to audit</a>
+        </div>
+
+        <div class="apiconfig-split">
+            <div class="card">
+                <div class="card-body">
+                    <h3 class="card-title">Identity and approval</h3>
+                    <dl class="apiconfig-dl">
+                        <dt>Execution ID</dt><dd class="apiconfig-mono">@D.Int(request, "ExecutionId")</dd>
+                        <dt>External handle</dt><dd class="apiconfig-mono">@D.Str(request, "ExecutionUid")</dd>
+                        <dt>Business key</dt><dd>@D.Str(request, "BusinessKey")</dd>
+                        <dt>Customer</dt><dd>@D.Str(request, "CustomerName")</dd>
+                        <dt>Application</dt><dd>@D.Str(request, "ApplicationName")</dd>
+                        <dt>Connector</dt><dd>@D.Str(request, "ConnectorName")</dd>
+                        <dt>Version</dt><dd>v@(D.Int(request, "VersionNumber"))</dd>
+                        <dt>Config hash</dt><dd class="apiconfig-mono">@D.Str(request, "ConfigHash")</dd>
+                        <dt>Mode</dt><dd>@D.Str(request, "ExecutionMode")</dd>
+                        <dt>Status</dt><dd><span class="badge @BadgeFor(D.Str(request, "Status"))">@D.Str(request, "Status")</span></dd>
+                        <dt>Approved by</dt><dd>@(string.IsNullOrEmpty(D.Str(request, "DecidedBy")) ? "-" : D.Str(request, "DecidedBy"))</dd>
+                        <dt>Decided on</dt><dd>@(D.Date(request, "DecidedOn")?.ToString("yyyy-MM-dd HH:mm") ?? "-")</dd>
+                        <dt>Approval hash</dt><dd class="apiconfig-mono">@D.Str(request, "ApprovalHash")</dd>
+                        <dt>Payload hash</dt><dd class="apiconfig-mono">@D.Str(request, "PayloadHash")</dd>
+                        <dt>Created</dt><dd>@D.Date(request, "CreatedOn")?.ToString("yyyy-MM-dd HH:mm")</dd>
+                        <dt>Completed</dt><dd>@(D.Date(request, "CompletedOn")?.ToString("yyyy-MM-dd HH:mm") ?? "-")</dd>
+                    </dl>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <h3 class="card-title">Sent package</h3>
+                    <p class="card-subtitle apiconfig-mono">@D.Str(request, "ResolvedMethod") @D.Str(request, "ResolvedUrl")</p>
+                    <pre class="apiconfig-code">@ViewBag.PrettyPayload</pre>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+            <div class="card-body">
+                <h3 class="card-title">Attempts</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>#</th><th>Started</th><th>Completed</th><th>Status code</th><th>Outcome</th><th>Duration</th><th>Redacted detail</th></tr></thead>
+                        <tbody>
+                        @if (attempts.Rows.Count == 0)
+                        {
+                            <tr><td colspan="7">No attempt has been made yet.</td></tr>
+                        }
+                        else
+                        {
+                            foreach (DataRow row in attempts.Rows)
+                            {
+                                    var detail = D.Str(row, "ErrorMessage") + D.Str(row, "ResponseSnippet");
+                                    var attemptNo = D.Int(row, "AttemptNumber");
+                                    var failed = !string.Equals(D.Str(row, "Outcome"), "Succeeded", StringComparison.OrdinalIgnoreCase);
+                                    <tr>
+                                        <td>@attemptNo</td>
+                                        <td>@D.Date(row, "StartedOn")?.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                        <td>@D.Date(row, "CompletedOn")?.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                        <td>@(D.Int(row, "HttpStatusCode") == 0 ? "-" : D.Int(row, "HttpStatusCode").ToString())</td>
+                                        <td><span class="badge @BadgeFor(D.Str(row, "Outcome"))">@D.Str(row, "Outcome")</span></td>
+                                        <td>@D.Int(row, "DurationMs")ms</td>
+                                        <td>
+                                            @if (string.IsNullOrWhiteSpace(detail))
+                                            {
+                                                <span class="apiconfig-muted">No body returned</span>
+                                            }
+                                            else
+                                            {
+                                                <div class="apiconfig-detail">
+                                                    <span class="apiconfig-peek @(failed ? "is-error" : "")">@(detail.Length > 90 ? detail.Substring(0, 90) + "…" : detail)</span>
+                                                    <button type="button" class="btn btn-sm" data-attempt="audit@(attemptNo)">
+                                                        <i class="fa-solid fa-code"></i>View
+                                                    </button>
+                                                    <script type="application/json" id="attemptBodyaudit@(attemptNo)">@detail</script>
+                                                </div>
+                                            }
+                                        </td>
+                                    </tr>   
+                            }
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        @if (exceptions.Rows.Count > 0)
+        {
+            <div class="card" style="margin-top:16px">
+                <div class="card-body">
+                    <h3 class="card-title">Exception queue</h3>
+                    @foreach (DataRow row in exceptions.Rows)
+                    {
+                        <div class="apiconfig-alert err">
+                            <i class="fa-solid fa-circle-exclamation"></i>
+                            <span><strong>@D.Str(row, "Category")</strong> &ndash; @D.Str(row, "Reason")</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+    else
+    {
+        var executions = ViewBag.Executions as DataTable ?? new DataTable();
+        var events = ViewBag.AuditEvents as DataTable ?? new DataTable();
+        var from = ViewBag.From as DateTime?;
+        var to = ViewBag.To as DateTime?;
+
+        <div class="card">
+            <div class="card-body">
+                <h3 class="card-title">Execution audit</h3>
+                <p class="card-subtitle">
+                    Timestamps are written by SQL Server. The export is generated server-side from SQL under the
+                    current filters and never contains secret values or unredacted response bodies.
+                </p>
+
+                <form class="toolbar ea-toolbar" method="get" asp-action="Index">
+                    <input type="hidden" name="tab" value="audit" />
+                    <div class="toolbar-left ea-filters">
+                        <input type="search" name="search" value="@ViewBag.Search" placeholder="Execution ID, handle, business key or connector" />
+                        <select name="status">
+                            <option value="">All statuses</option>
+                            @foreach (var option in new[] { "PendingReview", "ApprovedAwaitingExecution", "Queued", "Executing", "Succeeded", "BusinessFailed", "TechnicalFailed", "UnknownOutcome", "Rejected", "ApprovalInvalidated" })
+                            {
+                                <option value="@option" selected="@(option.Equals(ViewBag.Status as string) ? "selected" : null)">@option</option>
+                            }
+                        </select>
+                        <input type="date" name="from" value="@(from?.ToString("yyyy-MM-dd"))" aria-label="From date" />
+                        <input type="date" name="to" value="@(to?.ToString("yyyy-MM-dd"))" aria-label="To date" />
+                        <button class="btn btn-sm" type="submit"><i class="fa-solid fa-magnifying-glass"></i>Apply</button>
+                    </div>
+                    <div class="toolbar-right ea-actions">
+                        <span class="ea-count"><strong>@executions.Rows.Count</strong> execution@(executions.Rows.Count == 1 ? "" : "s")</span>
+                        <a class="btn" href="@Url.Action("Export", new { search = ViewBag.Search, status = ViewBag.Status, from, to })">
+                            <i class="fa-solid fa-download"></i>Export audit JSON
+                        </a>
+                    </div>
+                </form>
+
+                <div class="table-wrap ea-grid">
+                    <table class="ea-table">
+                        <thead>
+                            <tr><th>Timestamp</th><th>ID</th><th>Connector / version</th><th>Mode</th><th>Status</th><th>Approved by</th><th>Payload hash</th><th>Attempts</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            @if (executions.Rows.Count == 0)
+                            {
+                                <tr class="ea-empty-row">
+                                    <td colspan="9">
+                                        <div class="ea-empty">
+                                            <span class="ea-empty-icon"><i class="fa-solid fa-clock-rotate-left"></i></span>
+                                            <strong>No executions match this filter</strong>
+                                            <span>Widen the dates, clear the status, or check the search text.</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                            else
+                            {
+                                foreach (DataRow row in executions.Rows)
+                                {
+                                    var openUrl = Url.Action("Index", new { tab = "audit", id = D.Int(row, "ExecutionId") });
+                                    <tr data-open="@openUrl">
+                                    <td>@D.Date(row, "CreatedOn")?.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td class="apiconfig-mono">@D.Int(row, "ExecutionId")</td>
+                                    <td>
+                                        @D.Str(row, "ConnectorName")
+                                        <div class="apiconfig-muted">v@(D.Int(row, "VersionNumber")) &middot; @D.Str(row, "CustomerName")</div>
+                                    </td>
+                                    <td>@D.Str(row, "ExecutionMode")</td>
+                                    <td><span class="badge @BadgeFor(D.Str(row, "Status"))">@D.Str(row, "Status")</span></td>
+                                    <td>@(string.IsNullOrEmpty(D.Str(row, "DecidedBy")) ? "-" : D.Str(row, "DecidedBy"))</td>
+                                    <td class="apiconfig-mono">@D.ShortHash(D.Str(row, "PayloadHash"))</td>
+                                    <td>@D.Int(row, "AttemptCount")</td>
+                                        <td class="ea-right"><a class="btn btn-sm ea-open" href="@openUrl">Open<i class="fa-solid fa-arrow-right"></i></a></td>
+                                </tr>
+                            }
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+            <div class="card-body">
+                <h3 class="card-title">Recent audit events</h3>
+                <p class="card-subtitle">Append-only, no secrets.</p>
+                <div class="table-wrap ea-grid ea-grid-short">
+                    <table>
+                        <thead><tr><th>When</th><th>Event</th><th>Entity</th><th>Actor</th><th>Detail</th></tr></thead>
+                        <tbody>
+                        @foreach (DataRow row in events.Rows)
+                        {
+                            <tr>
+                                <td>@D.Date(row, "CreatedOn")?.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                <td class="apiconfig-mono">@D.Str(row, "EventType")</td>
+                                <td>@D.Str(row, "EntityType")</td>
+                                <td>@D.Str(row, "ActorName")</td>
+                                <td class="apiconfig-mono">@D.ShortHash(D.Str(row, "DetailsJson"))</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@* ==========================================================================
+   RUNTIME ABSTRACTIONS
+   ========================================================================== *@
+@if (tab == "runtime")
+{
+    var providers = ViewBag.Providers as DataTable ?? new DataTable();
+    var awsOn = ViewBag.AwsEnabled == true;
+
+    <div class="rt-tiles">
+        <div class="rt-tile">
+            <span class="rt-tile-icon"><i class="fa-solid fa-key"></i></span>
+            <span class="rt-tile-text">
+                <span>Secret provider</span>
+                <strong>@ViewBag.SecretAdapter</strong>
+            </span>
+        </div>
+        <div class="rt-tile">
+            <span class="rt-tile-icon"><i class="fa-solid fa-paper-plane"></i></span>
+            <span class="rt-tile-text">
+                <span>Execution transport</span>
+                <strong>@ViewBag.TransportAdapter</strong>
+            </span>
+        </div>
+        <div class="rt-tile @(awsOn ? "is-on" : "")">
+            <span class="rt-tile-icon"><i class="fa-solid fa-cloud"></i></span>
+            <span class="rt-tile-text">
+                <span>AWS</span>
+                <strong>@(awsOn ? "Enabled" : "Disabled")</strong>
+            </span>
+        </div>
+        <div class="rt-tile">
+            <span class="rt-tile-icon"><i class="fa-solid fa-location-dot"></i></span>
+            <span class="rt-tile-text">
+                <span>Region</span>
+                <strong>@(string.IsNullOrWhiteSpace(ViewBag.Region as string) ? "Not set" : ViewBag.Region)</strong>
+            </span>
+        </div>
+    </div>
+
+    <div class="card rt-card">
+        <div class="card-body">
+            <div class="rt-head">
+                <div>
+                    <h3 class="card-title">Portability</h3>
+                    <p class="card-subtitle">The cloud stays behind two files, so the same flow runs without it.</p>
+                </div>
+            </div>
+            <ul class="rt-rules">
+                <li><i class="fa-solid fa-circle-check"></i>The controller, view, validation and executor contain no AWS SDK types.</li>
+                <li><i class="fa-solid fa-circle-check"></i>ApiConfigSecretResolver and ApiConfigQueuePublisher are the only files that reference the AWS SDK.</li>
+                <li><i class="fa-solid fa-circle-check"></i>With AWS disabled the same flow runs end to end against SQL Server alone.</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="card rt-card">
+        <div class="card-body">
+            <div class="rt-head">
+                <div>
+                    <h3 class="card-title">Configured aliases</h3>
+                    <p class="card-subtitle">Secret stores and transports this environment can use. Secret values are never shown.</p>
+                </div>
+                <span class="badge badge-neutral">@providers.Rows.Count alias@(providers.Rows.Count == 1 ? "" : "es")</span>
+            </div>
+
+            @if (providers.Rows.Count == 0)
+            {
+                <div class="rt-empty">
+                    <span class="rt-empty-icon"><i class="fa-solid fa-plug-circle-xmark"></i></span>
+                    <strong>No aliases configured</strong>
+                    <span>Add rows to API_Config_Provider to offer secret stores or transports here.</span>
+                </div>
+            }
+            else
+            {
+                <div class="table-wrap">
+                    <table class="rt-table">
+                        <thead>
+                            <tr><th>Category</th><th>Alias</th><th>Adapter</th><th>Settings</th><th>Status</th></tr>
+                        </thead>
+                        <tbody>
+                            @{
+                                var providerNo = 0;
+                            }
+                            @foreach (DataRow row in providers.Rows)
+                            {
+                                providerNo++;
+                                var settings = D.Str(row, "SettingsJson");
+                                var enabled = D.Bool(row, "Enabled");
+                                <tr>
+                                    <td><span class="badge badge-info">@D.Str(row, "ProviderCategory")</span></td>
+                                    <td class="apiconfig-mono"><strong>@D.Str(row, "ProviderAlias")</strong></td>
+                                    <td>@D.Str(row, "AdapterType")</td>
+                                    <td>
+                                        @if (string.IsNullOrWhiteSpace(settings))
+                                        {
+                                            <span class="apiconfig-muted">None</span>
+                                        }
+                                        else
+                                        {
+                                            <div class="apiconfig-detail">
+                                                <span class="apiconfig-peek">@(settings.Length > 70 ? settings.Substring(0, 70) + "…" : settings)</span>
+                                                <button type="button" class="btn btn-sm" data-attempt="provider@(providerNo)">
+                                                    <i class="fa-solid fa-code"></i>View
+                                                </button>
+                                                <script type="application/json" id="attemptBodyprovider@(providerNo)">@settings</script>
+                                            </div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="badge @(enabled ? "badge-success" : "badge-neutral")">@(enabled ? "Enabled" : "Disabled")</span>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+}
+@* Settings travel on data attributes, not an inline script, so the page needs
+   no CSP nonce. *@
+<div id="apiconfigSettings"
+     data-preview-url="@Url.Action("ResolvePreview")"
+     data-start-step="@(ViewBag.Step ?? 1)"
+     data-read-only="@((ViewBag.ReadOnly == true).ToString().ToLowerInvariant())"
+     hidden></div>
+
+<script src="~/js/apiconfig.js" asp-append-version="true"></script>
+
+<script nonce="@Context.ApsNonce()">
+    (function () {
+        'use strict';
+
+        // The dialog is created on first use, so it never depends on where
+        // the markup sits or which tab is open.
+        function viewer() {
+            var existing = document.getElementById('attemptViewer');
+            if (existing) { return existing; }
+
+            var wrap = document.createElement('div');
+            wrap.id = 'attemptViewer';
+            wrap.className = 'apiconfig-viewer';
+            wrap.hidden = true;
+            wrap.innerHTML =
+                '<div class="apiconfig-viewer-card">' +
+                    '<div class="apiconfig-viewer-head">' +
+                        '<strong id="attemptViewerTitle">Response</strong>' +
+                        '<span>' +
+                            '<button type="button" class="btn btn-sm" data-attempt-copy><i class="fa-solid fa-copy"></i>Copy</button>' +
+                            '<button type="button" class="btn btn-sm" data-attempt-close><i class="fa-solid fa-xmark"></i>Close</button>' +
+                        '</span>' +
+                    '</div>' +
+                    '<pre class="apiconfig-code" id="attemptViewerBody"></pre>' +
+                '</div>';
+
+            document.body.appendChild(wrap);
+            return wrap;
+        }
+
+        document.addEventListener('click', function (e) {
+            var button = e.target.closest('[data-attempt]');
+            if (button) {
+                var holder = document.getElementById('attemptBody' + button.getAttribute('data-attempt'));
+                if (!holder) { return; }
+
+                var text = holder.textContent || '';
+                var pretty = text;
+                try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch (err) { /* not JSON, show as-is */ }
+
+                var wrap = viewer();
+                wrap.querySelector('#attemptViewerTitle').textContent =
+                    'Attempt ' + button.getAttribute('data-attempt') + ' response';
+                wrap.querySelector('#attemptViewerBody').textContent = pretty;
+                wrap.hidden = false;
+                return;
+            }
+
+            if (e.target.closest('[data-attempt-close]') || e.target.id === 'attemptViewer') {
+                var open = document.getElementById('attemptViewer');
+                if (open) { open.hidden = true; }
+                return;
+            }
+
+            var copy = e.target.closest('[data-attempt-copy]');
+            if (copy) {
+                var body = document.getElementById('attemptViewerBody');
+                if (body && navigator.clipboard) { navigator.clipboard.writeText(body.textContent); }
+                copy.textContent = 'Copied';
+                window.setTimeout(function () { copy.innerHTML = '<i class="fa-solid fa-copy"></i>Copy'; }, 1200);
+            }
+        });
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key !== 'Escape') { return; }
+            var open = document.getElementById('attemptViewer');
+            if (open) { open.hidden = true; }
+        });
+                // Clicking anywhere on an audit row opens that execution.
+        document.addEventListener('click', function (e) {
+            var row = e.target.closest('tr[data-open]');
+            if (!row || e.target.closest('a, button')) { return; }
+            window.location.href = row.getAttribute('data-open');
+        });
+    })();
+</script>

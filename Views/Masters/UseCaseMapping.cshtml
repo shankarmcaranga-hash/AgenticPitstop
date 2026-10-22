@@ -1,0 +1,210 @@
+@using System.Data
+@{
+    ViewBag.Title = "Use Case Mapping";
+    var users = (DataTable)ViewBag.Users ?? new DataTable();
+    var selectedUserId = Convert.ToInt32(ViewBag.SelectedUserId ?? 0);
+
+    ViewData["PageTitle"] = "Use Case Mapping";
+    ViewData["PageSubtitle"] = "Which use cases a user may open. Nothing else in the portal grants that access.";
+    ViewData["PageBreadcrumb"] = "Administration / Use Case Mapping";
+}
+
+@await Html.PartialAsync("_PageHeader")
+
+<div class="card">
+    <div class="card-header">
+        <div class="card-title-row">
+            <div>
+                <h2 class="card-title">Assign use cases</h2>
+                <p class="card-subtitle">
+                    Pick a user, tick the use cases they should see, and save. Unticking revokes
+                    the grant; the row is kept inactive rather than deleted, so the history stays.
+                </p>
+            </div>
+            <button class="btn btn-primary" id="saveMappingButton" disabled>
+                <i class="fa-solid fa-floppy-disk"></i>Save mapping
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        @if (users.Rows.Count == 0)
+        {
+            ViewData["EmptyIcon"] = "fa-user-check";
+            ViewData["EmptyHeading"] = "No active users";
+            ViewData["EmptyMessage"] = "Add a user on the User Management screen before assigning use cases.";
+            @await Html.PartialAsync("_EmptyState")
+        }
+        else
+        {
+            <div class="form-group">
+                <label for="userSelect">User</label>
+                <select id="userSelect">
+                    <option value="0">Select a user</option>
+                    @foreach (DataRow user in users.Rows)
+                    {
+                        var uid = Convert.ToInt32(user["UserID"]);
+                        <option value="@uid" selected="@(uid == selectedUserId)">
+                            @user["FirstName"] @user["LastName"] (@user["UserName"]) -
+                            @user["RoleName"] - @user["MappedCount"] assigned
+                        </option>
+                    }
+                </select>
+                <span class="input-help">
+                    Only active users are listed. A user's role decides which screens they see;
+                    this screen decides which use cases they see inside them.
+                </span>
+            </div>
+
+            <div id="mappingArea">
+                @{
+                    ViewData["EmptyIcon"] = "fa-user-check";
+                    ViewData["EmptyHeading"] = "Select a user";
+                    ViewData["EmptyMessage"] = "Choose a user above to see the use cases available to them.";
+                }
+                @await Html.PartialAsync("_EmptyState")
+            </div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+<script nonce="@Context.ApsNonce()">
+    (window.apsReady = window.apsReady || []).push(function ($) {
+        'use strict';
+
+        var listUrl = '@Url.Action("MappingFor", "Masters")';
+        var saveUrl = '@Url.Action("SaveMapping", "Masters")';
+
+        function esc(value) {
+            return APS.escapeHtml(value === null || value === undefined ? '' : value);
+        }
+
+        // Same markup as Views/Shared/_EmptyState.cshtml, so the client side and
+        // the server side render an identical empty state.
+        function message(icon, heading, text) {
+            return '<div class="empty-state">' +
+                   '<div class="empty-icon"><i class="fa-solid ' + icon + '"></i></div>' +
+                   '<h3>' + esc(heading) + '</h3>' +
+                   '<p>' + esc(text) + '</p></div>';
+        }
+
+        function count() {
+            $('#mappingCount').text($('.map-usecase:checked').length + ' selected');
+        }
+
+        function draw(rows) {
+            if (!rows.length) {
+                $('#mappingArea').html(
+                    '<div class="callout">No active use cases exist yet. ' +
+                    'Create one on the Use Case Master screen first.</div>');
+                $('#saveMappingButton').prop('disabled', true);
+                return;
+            }
+
+            // Grouped by client, because that is how an administrator thinks
+            // about them, and it matches the checklist question picker.
+            var groups = {};
+            var order = [];
+
+            rows.forEach(function (row) {
+                if (!groups[row.clientName]) {
+                    groups[row.clientName] = [];
+                    order.push(row.clientName);
+                }
+                groups[row.clientName].push(row);
+            });
+
+            var html = '<div class="dl-questions">' + order.map(function (client) {
+                return '<div class="dl-qgroup">' +
+                       '<div class="dl-qgroup-title">' + esc(client) + '</div>' +
+                       groups[client].map(function (row) {
+                           return '<label class="dl-check">' +
+                                  '<input type="checkbox" class="map-usecase" value="' +
+                                  row.useCaseId + '"' + (row.isMapped ? ' checked' : '') + ' />' +
+                                  '<span>' + esc(row.useCaseName) + ' <span class="sm">(' +
+                                  esc(row.useCaseCode) +
+                                  (row.processName ? ' - ' + esc(row.processName) : '') +
+                                  ')</span></span></label>';
+                       }).join('') + '</div>';
+            }).join('') + '</div>';
+
+            var checked = rows.filter(function (row) { return row.isMapped; }).length;
+
+            $('#mappingArea').html(
+                '<div class="dl-label">Use cases ' +
+                '<span class="badge badge-info" id="mappingCount">' + checked + ' selected</span> ' +
+                '<button class="btn btn-sm" id="selectAllUseCases" type="button">Select all</button> ' +
+                '<button class="btn btn-sm" id="clearAllUseCases" type="button">Clear all</button>' +
+                '</div>' + html);
+
+            $('#saveMappingButton').prop('disabled', false);
+        }
+
+        function load(userId) {
+            if (!userId) {
+                $('#mappingArea').html(message('fa-user-check', 'Select a user',
+                    'Choose a user above to see the use cases available to them.'));
+                $('#saveMappingButton').prop('disabled', true);
+                return;
+            }
+
+            $.ajax({
+                url: listUrl,
+                type: 'GET',
+                data: { userId: userId },
+                dataType: 'json',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            }).done(function (response) {
+                if (!response.success) {
+                    $('#mappingArea').html('<div class="callout">' +
+                        esc(response.message || 'The use cases could not be loaded.') + '</div>');
+                    $('#saveMappingButton').prop('disabled', true);
+                    return;
+                }
+                draw(response.data || []);
+            }).fail(function (xhr) {
+                $('#mappingArea').html('<div class="callout">' +
+                    (xhr.status === 403
+                        ? 'You do not have access to this action.'
+                        : 'The use cases could not be loaded.') + '</div>');
+                $('#saveMappingButton').prop('disabled', true);
+            });
+        }
+
+        $('#userSelect').on('change', function () {
+            load(Number($(this).val()) || 0);
+        });
+
+        $('#mappingArea').on('change', '.map-usecase', count);
+
+        $('#mappingArea').on('click', '#selectAllUseCases', function () {
+            $('.map-usecase').prop('checked', true);
+            count();
+        });
+
+        $('#mappingArea').on('click', '#clearAllUseCases', function () {
+            $('.map-usecase').prop('checked', false);
+            count();
+        });
+
+        $('#saveMappingButton').on('click', function () {
+            var userId = Number($('#userSelect').val()) || 0;
+            if (!userId) { APS.toast('Select a user first.', 'error'); return; }
+
+            var ids = $('.map-usecase:checked').map(function () { return this.value; }).get();
+
+            APS.busy(this, APS.post(saveUrl, {
+                userId: userId,
+                useCaseIds: ids.join(',')
+            })).then(function (response) {
+                if (!response.success) { return; }
+                APS.toast(response.message, 'success');
+            });
+        });
+
+        // Honour a userId arriving on the query string.
+        var initial = Number($('#userSelect').val()) || 0;
+        if (initial) { load(initial); }
+    });
+</script>
+}

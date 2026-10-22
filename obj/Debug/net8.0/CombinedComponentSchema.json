@@ -1381,5 +1381,5 @@
     }
   },
   "type": "object",
-  "SourceSegments": "C:\\Users\\356116.adm\\.nuget\\packages\\system.clientmodel\\1.10.0\\ConfigurationSchema.json;C:\\Users\\356116.adm\\.nuget\\packages\\azure.core\\1.54.0\\ConfigurationSchema.json;C:\\Users\\356116.adm\\.nuget\\packages\\azure.security.keyvault.secrets\\4.11.2\\ConfigurationSchema.json"
+  "SourceSegments": "C:\\Users\\360545.adm\\.nuget\\packages\\system.clientmodel\\1.10.0\\ConfigurationSchema.json;C:\\Users\\360545.adm\\.nuget\\packages\\azure.core\\1.54.0\\ConfigurationSchema.json;C:\\Users\\360545.adm\\.nuget\\packages\\azure.security.keyvault.secrets\\4.11.2\\ConfigurationSchema.json"
 }

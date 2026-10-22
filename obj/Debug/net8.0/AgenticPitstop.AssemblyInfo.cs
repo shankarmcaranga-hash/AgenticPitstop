@@ -15,7 +15,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("AgenticPitstop")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7ba14c90d3b1027fb5ea1ab43b7156db75e3cdcc")]
 [assembly: System.Reflection.AssemblyProductAttribute("AgenticPitstop")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AgenticPitstop")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

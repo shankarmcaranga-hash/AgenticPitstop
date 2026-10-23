@@ -1,10 +1,13 @@
-﻿namespace AgenticPitStop.Tests;
+﻿using Xunit;
 
-public class UnitTest1
+namespace AgenticPitStop.Tests
 {
-    [Fact]
-    public void Test1()
+    public class SampleTests
     {
-
+        [Fact]
+        public void Test1()
+        {
+            Assert.True(true);
+        }
     }
 }
